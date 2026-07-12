@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>殘存之境 Deadfall — 3D 喪屍生存遊戲規格書</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#12140f;
+  --panel:#1a1d16;
+  --panel-2:#20241b;
+  --line:#33382b;
+  --ink:#d8d4c2;
+  --ink-dim:#9a977f;
+  --amber:#e5a13c;
+  --danger:#c84a3c;
+  --olive:#8a9a6b;
+  --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'Noto Sans TC',sans-serif;
+  font-size:15.5px;
+  line-height:1.75;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(138,154,107,.07), transparent),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,.006) 3px, rgba(255,255,255,.006) 4px);
+}
+
+/* ── HERO ── */
+.hero{
+  border-bottom:1px solid var(--line);
+  padding:64px 24px 44px;
+  position:relative;
+  overflow:hidden;
+}
+.hero-inner{max-width:1120px;margin:0 auto;position:relative}
+.hazard{
+  height:10px;width:180px;margin-bottom:26px;
+  background:repeating-linear-gradient(-45deg, var(--amber) 0 12px, #16190f 12px 24px);
+}
+.hero .file-tag{
+  font-family:var(--mono);font-size:12px;letter-spacing:.22em;
+  color:var(--olive);text-transform:uppercase;margin-bottom:14px;
+}
+.hero h1{
+  font-family:'Big Shoulders Display','Noto Sans TC',sans-serif;
+  font-weight:800;
+  font-size:clamp(44px,7vw,86px);
+  line-height:1.02;letter-spacing:.01em;
+  color:#efeadb;
+}
+.hero h1 .en{color:var(--amber);display:block;font-size:.42em;letter-spacing:.28em;margin-top:8px;font-weight:700}
+.hero .sub{margin-top:22px;max-width:640px;color:var(--ink-dim);font-size:15px}
+.stamp{
+  position:absolute;right:0;top:6px;
+  font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.3em;
+  color:var(--danger);border:2px solid var(--danger);
+  padding:8px 16px;transform:rotate(6deg);opacity:.85;
+  text-transform:uppercase;white-space:nowrap;
+}
+.hud{
+  margin-top:34px;display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:12px;max-width:900px;
+}
+.hud .stat{
+  background:var(--panel);border:1px solid var(--line);
+  padding:12px 14px;
+}
+.hud .stat .lab{
+  display:flex;justify-content:space-between;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;
+  color:var(--ink-dim);margin-bottom:8px;
+}
+.hud .stat .lab b{color:var(--ink)}
+.hud .bar{height:7px;background:#0c0e09;border:1px solid var(--line);overflow:hidden}
+.hud .bar i{display:block;height:100%;width:0;transition:width 1.4s cubic-bezier(.22,1,.36,1)}
+.hud .hp i{background:var(--danger)}
+.hud .food i{background:var(--amber)}
+.hud .water i{background:#5f8ca3}
+.hud .sp i{background:var(--olive)}
+
+/* ── LAYOUT ── */
+.wrap{max-width:1120px;margin:0 auto;padding:48px 24px 100px;display:grid;grid-template-columns:236px 1fr;gap:56px}
+nav.toc{position:sticky;top:24px;align-self:start;font-size:13.5px}
+nav.toc .toc-title{
+  font-family:var(--mono);font-size:11px;letter-spacing:.25em;
+  color:var(--olive);text-transform:uppercase;margin-bottom:14px;
+  padding-bottom:10px;border-bottom:1px solid var(--line);
+}
+.toc-link{
+  display:flex;gap:10px;align-items:baseline;
+  color:var(--ink-dim);text-decoration:none;
+  padding:6px 8px 6px 0;border-left:2px solid transparent;padding-left:10px;
+  transition:color .15s,border-color .15s;
+}
+.toc-link:hover{color:var(--ink)}
+.toc-link.active{color:var(--amber);border-left-color:var(--amber)}
+.toc-num{font-family:var(--mono);font-size:10.5px;color:var(--olive);min-width:20px}
+
+/* ── CONTENT ── */
+main{min-width:0}
+main h2{
+  font-family:'Big Shoulders Display','Noto Sans TC',sans-serif;
+  font-weight:700;font-size:clamp(26px,3.2vw,34px);
+  color:#efeadb;letter-spacing:.02em;
+  margin:70px 0 6px;padding-top:22px;
+  border-top:1px solid var(--line);
+  scroll-margin-top:20px;
+  position:relative;
+}
+main h2::before{
+  content:'';position:absolute;top:-1px;left:0;
+  width:64px;height:3px;
+  background:repeating-linear-gradient(-45deg, var(--amber) 0 6px, transparent 6px 12px);
+}
+main h2:first-child{margin-top:0;border-top:none;padding-top:0}
+main h2:first-child::before{display:none}
+main h3{
+  font-size:17.5px;font-weight:700;color:var(--amber);
+  margin:36px 0 10px;scroll-margin-top:20px;
+}
+main p{margin:12px 0;color:var(--ink)}
+main strong{color:#f0ecdd}
+main ul,main ol{margin:12px 0 12px 22px}
+main li{margin:5px 0}
+main blockquote{
+  border-left:3px solid var(--olive);
+  padding:10px 18px;margin:16px 0;
+  background:var(--panel);color:var(--ink-dim);font-size:14px;
+}
+main hr{border:none;border-top:1px solid var(--line);margin:0}
+main code{
+  font-family:var(--mono);font-size:13px;
+  background:var(--panel-2);border:1px solid var(--line);
+  padding:1.5px 6px;color:var(--amber);
+}
+main pre{
+  background:#0c0e09;border:1px solid var(--line);
+  padding:18px 20px;overflow-x:auto;margin:16px 0;
+  font-size:13px;line-height:1.6;
+}
+main pre code{background:none;border:none;padding:0;color:#b9c4a0}
+
+table{
+  width:100%;border-collapse:collapse;margin:16px 0;
+  font-size:14px;background:var(--panel);
+  border:1px solid var(--line);
+}
+th{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;
+  text-align:left;color:var(--olive);text-transform:uppercase;
+  background:var(--panel-2);
+  padding:10px 14px;border-bottom:1px solid var(--line);
+}
+td{padding:9px 14px;border-bottom:1px solid #262b1f;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(229,161,60,.04)}
+td:first-child{color:#f0ecdd;font-weight:500;white-space:nowrap}
+
+/* 勾選清單 */
+main li:has(input[type=checkbox]){list-style:none;margin-left:-22px}
+input[type=checkbox]{accent-color:var(--amber);margin-right:8px}
+
+footer{
+  border-top:1px solid var(--line);
+  padding:30px 24px;text-align:center;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;
+  color:var(--ink-dim);text-transform:uppercase;
+}
+
+@media(max-width:860px){
+  .wrap{grid-template-columns:1fr;gap:24px}
+  nav.toc{position:static;display:flex;flex-wrap:wrap;gap:4px 14px;border-bottom:1px solid var(--line);padding-bottom:16px}
+  nav.toc .toc-title{width:100%;border:none;margin-bottom:4px}
+  .toc-link{border-left:none;padding:3px 0}
+  .stamp{position:static;display:inline-block;margin-top:18px;transform:rotate(-2deg)}
+  td:first-child{white-space:normal}
+}
+a:focus-visible,.toc-link:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hazard"></div>
+    <div class="file-tag">GAME DESIGN DOCUMENT · NV-7 OUTBREAK FILE · v1.0</div>
+    <h1>殘存之境<span class="en">DEADFALL — 3D SURVIVAL SPEC</span></h1>
+    <div class="stamp">SURVIVORS ONLY</div>
+    <p class="sub">病毒爆發後的開放世界 3D 生存遊戲完整規格書 —— 涵蓋四大生存數值、三大生態區、感染者 AI、百種物品與七種遊戲模式。供 Claude Code 於終端機開發使用。</p>
+    <div class="hud" aria-hidden="true">
+      <div class="stat hp"><div class="lab"><b>❤ 生命值 HP</b><span>72/100</span></div><div class="bar"><i data-w="72%"></i></div></div>
+      <div class="stat food"><div class="lab"><b>🍖 飽食度</b><span>58/100</span></div><div class="bar"><i data-w="58%"></i></div></div>
+      <div class="stat water"><div class="lab"><b>💧 口渴度</b><span>41/100</span></div><div class="bar"><i data-w="41%"></i></div></div>
+      <div class="stat sp"><div class="lab"><b>⚡ 體力值</b><span>86/100</span></div><div class="bar"><i data-w="86%"></i></div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="目錄">
+    <div class="toc-title">Dossier Index</div>
+<a href="#1-遊戲概述" class="toc-link"><span class="toc-num">01</span>1. 遊戲概述</a>
+<a href="#2-技術架構建議-供-Claude-Code-開發" class="toc-link"><span class="toc-num">02</span>2. 技術架構建議(供 Claude Code 開發)</a>
+<a href="#3-核心生存數值系統-四大數值" class="toc-link"><span class="toc-num">03</span>3. 核心生存數值系統(四大數值)</a>
+<a href="#4-世界與地區設計" class="toc-link"><span class="toc-num">04</span>4. 世界與地區設計</a>
+<a href="#5-敵人設計" class="toc-link"><span class="toc-num">05</span>5. 敵人設計</a>
+<a href="#6-物品系統-完整清單" class="toc-link"><span class="toc-num">06</span>6. 物品系統(完整清單)</a>
+<a href="#7-遊戲系統與多種玩法" class="toc-link"><span class="toc-num">07</span>7. 遊戲系統與多種玩法</a>
+<a href="#8-操作設計-PC" class="toc-link"><span class="toc-num">08</span>8. 操作設計(PC)</a>
+<a href="#9-給-Claude-Code-的開發提示詞範例" class="toc-link"><span class="toc-num">09</span>9. 給 Claude Code 的開發提示詞範例</a>
+<a href="#10-驗收標準-MVP-定義" class="toc-link"><span class="toc-num">10</span>10. 驗收標準(MVP 定義)</a>
+
+  </nav>
+  <main>
+<h1 id="殘存之境-Deadfall-3D-喪屍生存遊戲-完整規格書">《殘存之境 Deadfall》— 3D 喪屍生存遊戲 完整規格書</h1>
+
+<hr />
+<h2 id="1-遊戲概述">1. 遊戲概述</h2>
+<h3 id="1-1-一句話簡介">1.1 一句話簡介</h3>
+<p>病毒爆發後的世界,玩家扮演倖存者,在荒野、鄉村與城市之間搜刮資源、建造據點、對抗感染者(人類與動物),並在飢餓、口渴、體力與傷病的夾縫中活下去。</p>
+<h3 id="1-2-世界觀背景">1.2 世界觀背景</h3>
+<ul>
+<li>「NV-7 諾瓦病毒」於三年前爆發,透過體液與咬傷傳染,感染人類與哺乳類動物。</li>
+<li>感染者不是傳統的「死者復活」,而是失去理智、痛覺遲鈍、攻擊性極強的活體宿主 —— 因此他們會奔跑、會挨餓、會被聲音與氣味吸引。</li>
+<li>政府崩潰,城市成為感染重災區(物資最豐富、風險最高);鄉村半荒廢(中等資源、中等風險);荒野相對安全但物資稀缺、有感染野獸。</li>
+<li>玩家的長期目標可以是:找到傳聞中的「淨區」、研發抗病毒血清、或單純建立一個能自給自足的堡壘。</li>
+</ul>
+<h3 id="1-3-核心遊戲循環-Core-Loop">1.3 核心遊戲循環(Core Loop)</h3>
+<pre><code>探索搜刮 → 帶回物資 → 製作/建造/烹飪 → 強化角色與據點 → 挑戰更危險的區域 → 回到探索
+                ↑ 全程受 飢餓/口渴/體力/生命 四大數值壓力驅動 ↓
+</code></pre>
+<hr />
+<h2 id="2-技術架構建議-供-Claude-Code-開發">2. 技術架構建議(供 Claude Code 開發)</h2>
+<h3 id="2-1-推薦技術選型">2.1 推薦技術選型</h3>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>技術</th>
+<th>優點</th>
+<th>適合情境</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A(推薦)</strong></td>
+<td>Three.js + JavaScript/TypeScript,瀏覽器執行</td>
+<td>純程式碼即可完成 3D,無需遊戲引擎編輯器,Claude Code 可全程在終端機開發</td>
+<td>想快速看到 3D 成果</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Godot 4(GDScript),用文字場景檔開發</td>
+<td>完整遊戲引擎功能(物理、導航、存檔)</td>
+<td>想做較完整的商業級架構</td>
+</tr>
+<tr>
+<td>C</td>
+<td>Python + Ursina/Panda3D</td>
+<td>上手極快</td>
+<td>原型驗證</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2-2-建議專案結構-以-Three-js-為例">2.2 建議專案結構(以 Three.js 為例)</h3>
+<pre><code>/deadfall
+├── index.html
+├── src/
+│   ├── main.js              # 進入點、遊戲迴圈
+│   ├── core/
+│   │   ├── GameState.js     # 全域狀態管理
+│   │   ├── SaveSystem.js    # 存檔(localStorage/IndexedDB)
+│   │   └── TimeSystem.js    # 日夜循環、天氣
+│   ├── player/
+│   │   ├── Player.js        # 角色控制(移動/跳躍/蹲伏)
+│   │   ├── Stats.js         # 四大生存數值
+│   │   └── Inventory.js     # 背包與裝備
+│   ├── world/
+│   │   ├── WorldGen.js      # 程序化地形生成
+│   │   ├── Biomes.js        # 荒野/鄉村/城市生態區
+│   │   └── LootSpawner.js   # 物資生成
+│   ├── entities/
+│   │   ├── ZombieHuman.js   # 感染人類 AI
+│   │   ├── ZombieAnimal.js  # 感染動物 AI
+│   │   └── NPCSurvivor.js   # 倖存者 NPC
+│   ├── systems/
+│   │   ├── Crafting.js      # 製作系統
+│   │   ├── Building.js      # 建造系統
+│   │   ├── Combat.js        # 戰鬥與傷害
+│   │   ├── Infection.js     # 感染/疾病系統
+│   │   └── Farming.js       # 農耕
+│   └── ui/
+│       ├── HUD.js           # 數值條、快捷欄
+│       └── Menus.js         # 背包/製作/地圖介面
+└── assets/                  # 模型、貼圖、音效
+</code></pre>
+<h3 id="2-3-開發里程碑-建議依序請-Claude-Code-實作">2.3 開發里程碑(建議依序請 Claude Code 實作)</h3>
+<ol>
+<li><strong>M1 基礎</strong>:3D 場景 + 第一人稱移動 + 日夜循環</li>
+<li><strong>M2 生存</strong>:四大數值系統 + HUD + 死亡邏輯</li>
+<li><strong>M3 世界</strong>:三大生態區地形生成 + 物資點</li>
+<li><strong>M4 互動</strong>:背包、拾取、製作、烹飪</li>
+<li><strong>M5 敵人</strong>:感染者 AI(視覺/聽覺偵測、追擊)</li>
+<li><strong>M6 戰鬥</strong>:近戰/遠程武器、傷害、感染判定</li>
+<li><strong>M7 建造</strong>:據點建築、防禦工事</li>
+<li><strong>M8 深度</strong>:NPC、任務、載具、技能樹、劇情</li>
+</ol>
+<hr />
+<h2 id="3-核心生存數值系統-四大數值">3. 核心生存數值系統(四大數值)</h2>
+<h3 id="3-1-生命值-HP-Health">3.1 生命值 HP(Health)</h3>
+<table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>設定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>範圍</td>
+<td>0 – 100</td>
+</tr>
+<tr>
+<td>歸零</td>
+<td>死亡(依模式決定是否永久死亡)</td>
+</tr>
+<tr>
+<td>減少來源</td>
+<td>感染者攻擊、墜落、飢餓/口渴歸零後每秒扣血、流血、疾病、中毒、極端溫度</td>
+</tr>
+<tr>
+<td>恢復方式</td>
+<td>繃帶止血後自然緩慢回復(需飽食度&gt;60%)、醫療包、藥品、睡眠</td>
+</tr>
+<tr>
+<td>特殊機制</td>
+<td>HP &lt; 30% 時畫面泛紅、移動速度 -15%、瞄準晃動加劇</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-2-飽食度-Hunger">3.2 飽食度(Hunger)</h3>
+<table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>設定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>範圍</td>
+<td>0 – 100</td>
+</tr>
+<tr>
+<td>自然消耗</td>
+<td>每遊戲小時 -1.5(靜止)/-3(奔跑、戰鬥、砍伐等勞動)</td>
+</tr>
+<tr>
+<td>歸零懲罰</td>
+<td>每 5 秒 -1 HP,體力上限減半</td>
+</tr>
+<tr>
+<td>低於 25%</td>
+<td>體力恢復速度 -50%,無法自然回血</td>
+</tr>
+<tr>
+<td>高於 80%</td>
+<td>體力恢復 +25%,自然回血啟動</td>
+</tr>
+<tr>
+<td>恢復方式</td>
+<td>進食(生食有食物中毒風險,熟食安全且回復量更高)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-3-口渴度-Thirst">3.3 口渴度(Thirst)</h3>
+<table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>設定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>範圍</td>
+<td>0 – 100</td>
+</tr>
+<tr>
+<td>自然消耗</td>
+<td>比飽食度快:每遊戲小時 -2.5(炎熱天氣或奔跑時 ×2)</td>
+</tr>
+<tr>
+<td>歸零懲罰</td>
+<td>每 3 秒 -1 HP(比飢餓更致命)</td>
+</tr>
+<tr>
+<td>低於 25%</td>
+<td>視野邊緣模糊、體力消耗 +30%</td>
+</tr>
+<tr>
+<td>恢復方式</td>
+<td>喝水。<strong>髒水</strong>(河水、雨水桶)直接喝有 40% 機率染上痢疾;需煮沸或用淨水錠</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-4-體力值-Stamina">3.4 體力值(Stamina)</h3>
+<table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>設定</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>範圍</td>
+<td>0 – 100,即時消耗即時恢復</td>
+</tr>
+<tr>
+<td>消耗行為</td>
+<td>奔跑(-5/秒)、跳躍(-10)、近戰揮擊(-8~15)、攀爬(-8/秒)、格擋(-12)、拉弓(-3/秒)</td>
+</tr>
+<tr>
+<td>歸零</td>
+<td>強制停止奔跑、無法揮武器、喘氣聲會吸引感染者</td>
+</tr>
+<tr>
+<td>恢復速度</td>
+<td>站立 +8/秒、行走 +4/秒;受飽食/口渴/負重/疾病影響</td>
+</tr>
+<tr>
+<td>上限機制</td>
+<td>長期營養不良會暫時降低上限;技能可永久提升上限</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-5-進階狀態-建議-M2-之後加入">3.5 進階狀態(建議 M2 之後加入)</h3>
+<ul>
+<li><strong>體溫</strong>:淋雨、涉水、夜晚荒野會失溫;失溫時體力恢復停止、持續扣血。靠營火、穿衣保暖。</li>
+<li><strong>感染值(Infection)</strong>:被感染者咬傷/抓傷有機率累積感染值,0→100 後轉化死亡。用抗生素延緩、血清治癒(稀有)。</li>
+<li><strong>疲勞/睡眠</strong>:超過 20 小時未睡眠出現視覺搖晃、體力上限 -30%。睡覺可快轉時間但據點不安全時可能被襲擊。</li>
+<li><strong>負重</strong>:背包超重時移動變慢、體力消耗增加。</li>
+<li><strong>傷病狀態列表</strong>:流血、骨折(需夾板,移速大減)、食物中毒、痢疾(口渴消耗×3)、感冒、中毒。</li>
+</ul>
+<h3 id="3-6-HUD-介面設計">3.6 HUD 介面設計</h3>
+<pre><code>┌────────────────────────────────────────────────┐
+│  [小地圖]                          [時間/天氣] │
+│                                                │
+│                  (準星)                        │
+│                                                │
+│ ❤ HP ▓▓▓▓▓▓▓░░░  🍖 飽食 ▓▓▓▓▓░░░░░           │
+│ 💧 口渴 ▓▓▓▓▓▓░░░ ⚡ 體力 ▓▓▓▓▓▓▓▓░░           │
+│ [1][2][3][4][5][6][7][8]  ← 快捷欄             │
+└────────────────────────────────────────────────┘
+狀態圖示:🩸流血 🦠感染 🌡️失溫 💀中毒 😴疲勞
+</code></pre>
+<hr />
+<h2 id="4-世界與地區設計">4. 世界與地區設計</h2>
+<h3 id="4-1-世界結構">4.1 世界結構</h3>
+<ul>
+<li>地圖尺寸建議 4km × 4km(程序化生成 + 手工地標混合)。</li>
+<li>三大生態區以「風險/報酬」梯度排列:<strong>荒野(低風險低報酬)→ 鄉村(中)→ 城市(高風險高報酬)</strong>。</li>
+<li>動態天氣:晴、陰、雨(淋濕失溫)、雷暴(雷聲掩護玩家腳步,也刺激感染者躁動)、濃霧(視野縮短,潛行加成)。</li>
+<li>日夜循環:一天 = 現實 40 分鐘。<strong>夜晚感染者移動速度 +30%、偵測範圍 +50%、刷新量 ×2</strong>,鼓勵玩家夜晚據守、白天外出。</li>
+</ul>
+<h3 id="4-2-荒野區-Wilderness">4.2 荒野區(Wilderness)</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地形</td>
+<td>森林、山丘、河流、湖泊、洞穴、沼澤</td>
+</tr>
+<tr>
+<td>資源</td>
+<td>木材、石頭、野果、草藥、獵物(鹿/兔/野豬)、淡水、蘑菇(部分有毒)</td>
+</tr>
+<tr>
+<td>威脅</td>
+<td>感染狼群、感染熊、毒蛇、失溫、迷路(無路標)</td>
+</tr>
+<tr>
+<td>地標</td>
+<td>護林員瞭望塔(望遠鏡+地圖碎片)、獵人小屋、洞穴系統(礦石+蝙蝠群)、墜毀直升機(軍用物資)</td>
+</tr>
+<tr>
+<td>玩法定位</td>
+<td>前期起步區、建立隱蔽據點的首選、食物與建材主要來源</td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-3-鄉村區-Rural">4.3 鄉村區(Rural)</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地形</td>
+<td>農田、農舍、穀倉、小鎮街道、加油站、教堂、鄉間公路</td>
+</tr>
+<tr>
+<td>資源</td>
+<td>種子與農具、罐頭、燃料、工具、獵槍與彈藥、拖拉機/皮卡零件、井水</td>
+</tr>
+<tr>
+<td>威脅</td>
+<td>散布的感染農民、感染家畜(牛/豬/狗)、穀倉內的感染者巢穴</td>
+</tr>
+<tr>
+<td>地標</td>
+<td>大型農場(可整修為據點)、水塔(登高觀察)、鄉鎮警局(武器櫃,需撬鎖)、診所(醫療品)</td>
+</tr>
+<tr>
+<td>玩法定位</td>
+<td>中期核心:農耕起步、載具修復、據點升級材料</td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-4-城市區-Urban">4.4 城市區(Urban)</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地形</td>
+<td>高樓、地鐵站、醫院、超市、購物中心、警察總局、軍方隔離區、下水道</td>
+</tr>
+<tr>
+<td>資源</td>
+<td>高級武器、稀有藥品(抗生素/血清材料)、電子零件、防彈裝備、大量罐頭</td>
+</tr>
+<tr>
+<td>威脅</td>
+<td>高密度感染者群(屍潮)、特殊變異體、建築倒塌區、敵對掠奪者幫派</td>
+</tr>
+<tr>
+<td>地標</td>
+<td><strong>醫院</strong>(血清研究線索)、<strong>軍方隔離區</strong>(最高級戰利品+最強變異體)、地鐵網(快速移動但黑暗)、屋頂花園(安全休息點)</td>
+</tr>
+<tr>
+<td>玩法定位</td>
+<td>後期挑戰區、劇情推進、頂級裝備來源</td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-5-特殊區域">4.5 特殊區域</h3>
+<ul>
+<li><strong>軍事檢查哨</strong>:地圖邊緣,有軍用卡車、槍械、防毒面具。</li>
+<li><strong>研究設施(終局地城)</strong>:病毒起源地,劇情終點,可製作血清。</li>
+<li><strong>感染巢穴</strong>:各區隨機生成,清除後該區域感染者刷新率大降,並掉落稀有物資。</li>
+</ul>
+<hr />
+<h2 id="5-敵人設計">5. 敵人設計</h2>
+<h3 id="5-1-感染人類">5.1 感染人類</h3>
+<table>
+<thead>
+<tr>
+<th>類型</th>
+<th>HP</th>
+<th>速度</th>
+<th>行為特徵</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>遊蕩者 Walker</td>
+<td>60</td>
+<td>慢</td>
+<td>最常見,漫無目的遊走,聽覺敏銳</td>
+</tr>
+<tr>
+<td>奔跑者 Runner</td>
+<td>45</td>
+<td>快</td>
+<td>感染初期宿主,發現目標會尖叫呼喚同伴</td>
+</tr>
+<tr>
+<td>潛伏者 Lurker</td>
+<td>70</td>
+<td>中</td>
+<td>躲在建築角落/車底,近距離突襲</td>
+</tr>
+<tr>
+<td>臃腫者 Bloater</td>
+<td>200</td>
+<td>極慢</td>
+<td>死亡時爆炸釋放毒氣雲,勿近戰</td>
+</tr>
+<tr>
+<td>尖嘯者 Screamer</td>
+<td>40</td>
+<td>不主動攻擊</td>
+<td>發現玩家會嘶吼,30 秒內召來一波屍潮,優先擊殺</td>
+</tr>
+<tr>
+<td>裝甲感染者</td>
+<td>150</td>
+<td>中</td>
+<td>前軍警,身穿防彈衣,只有頭部弱點</td>
+</tr>
+<tr>
+<td>變異巨獸 Abomination</td>
+<td>800</td>
+<td>中</td>
+<td>Boss 級,巢穴與軍事區守衛,掉落血清材料</td>
+</tr>
+</tbody>
+</table>
+<h3 id="5-2-感染動物">5.2 感染動物</h3>
+<table>
+<thead>
+<tr>
+<th>類型</th>
+<th>特徵</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>感染犬</td>
+<td>成群行動、速度極快、會繞後包抄</td>
+</tr>
+<tr>
+<td>感染狼</td>
+<td>荒野夜間狩獵,嚎叫吸引更多狼</td>
+</tr>
+<tr>
+<td>感染熊</td>
+<td>荒野小 Boss,一擊可造成骨折</td>
+</tr>
+<tr>
+<td>感染鼠群</td>
+<td>下水道/地鐵,單隻弱但成群啃咬並傳播疾病</td>
+</tr>
+<tr>
+<td>感染烏鴉</td>
+<td>空中騷擾,啄擊造成流血,槍聲可驅散</td>
+</tr>
+<tr>
+<td>感染野豬</td>
+<td>鄉村農田衝撞型敵人</td>
+</tr>
+</tbody>
+</table>
+<h3 id="5-3-感染者-AI-規格">5.3 感染者 AI 規格</h3>
+<ul>
+<li><strong>感知系統</strong>:視覺(錐形視野,夜晚縮短/夜行種加長)+ 聽覺(槍聲&gt;奔跑&gt;行走&gt;蹲行)+ 嗅覺(玩家流血時被追蹤)。</li>
+<li><strong>狀態機</strong>:<code>閒晃 → 起疑(朝聲源調查) → 追擊 → 攻擊 → 失去目標(搜索 30 秒) → 返回閒晃</code>。</li>
+<li><strong>群體行為</strong>:一隻進入追擊,半徑 20m 內同類跟隨;屍潮事件時全圖朝噪音點聚集。</li>
+<li><strong>人類敵人(掠奪者)</strong>:會用槍、找掩體、包抄,也會被感染者攻擊 —— 可誘導「三方混戰」。</li>
+</ul>
+<hr />
+<h2 id="6-物品系統-完整清單">6. 物品系統(完整清單)</h2>
+<blockquote>
+<p>物品皆有:重量、堆疊上限、耐久(裝備類)、品質等級(粗糙/普通/優良/軍規)。</p>
+</blockquote>
+<h3 id="6-1-食物類">6.1 食物類</h3>
+<table>
+<thead>
+<tr>
+<th>物品</th>
+<th>飽食</th>
+<th>附加效果</th>
+<th>來源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>野莓</td>
+<td>+8</td>
+<td>+3 口渴</td>
+<td>荒野採集</td>
+</tr>
+<tr>
+<td>蘑菇(可食)</td>
+<td>+10</td>
+<td>—</td>
+<td>森林;與毒菇外觀相似,需「野外知識」技能辨識</td>
+</tr>
+<tr>
+<td>生肉</td>
+<td>+15</td>
+<td>55% 食物中毒</td>
+<td>狩獵</td>
+</tr>
+<tr>
+<td>烤肉</td>
+<td>+35</td>
+<td>+5 HP</td>
+<td>營火烹飪</td>
+</tr>
+<tr>
+<td>肉乾</td>
+<td>+20</td>
+<td>不腐壞</td>
+<td>燻製架製作,長途探索必備</td>
+</tr>
+<tr>
+<td>罐頭(豆/魚/湯)</td>
+<td>+30</td>
+<td>不腐壞,需開罐器或刀(用刀損耗耐久)</td>
+<td>城市/鄉村搜刮</td>
+</tr>
+<tr>
+<td>巧克力棒</td>
+<td>+12</td>
+<td>體力立即 +30</td>
+<td>超市、自動販賣機</td>
+</tr>
+<tr>
+<td>燉菜</td>
+<td>+45</td>
+<td>+10 HP、保暖 30 分鐘</td>
+<td>鍋具+肉+蔬菜烹煮</td>
+</tr>
+<tr>
+<td>自種蔬菜(馬鈴薯/胡蘿蔔/番茄/玉米)</td>
+<td>+12~18</td>
+<td>可入菜</td>
+<td>農耕</td>
+</tr>
+<tr>
+<td>蜂蜜</td>
+<td>+15</td>
+<td>輕微治療感冒</td>
+<td>野生蜂巢(會被螫)</td>
+</tr>
+<tr>
+<td>魚(生/烤)</td>
+<td>+12/+28</td>
+<td>—</td>
+<td>釣魚</td>
+</tr>
+<tr>
+<td>軍用口糧 MRE</td>
+<td>+60</td>
+<td>不腐壞,稀有</td>
+<td>軍事區</td>
+</tr>
+<tr>
+<td>過期食品</td>
+<td>+10</td>
+<td>70% 食物中毒</td>
+<td>到處都是,絕境時的賭注</td>
+</tr>
+</tbody>
+</table>
+<p><strong>腐壞系統</strong>:生鮮食物有保鮮計時,腐壞後變「腐爛食物」(可當肥料或陷阱誘餌)。冰箱(需電力)可延長 3 倍保鮮。</p>
+<h3 id="6-2-飲水類">6.2 飲水類</h3>
+<table>
+<thead>
+<tr>
+<th>物品</th>
+<th>口渴</th>
+<th>備註</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>髒水</td>
+<td>+30</td>
+<td>40% 痢疾</td>
+</tr>
+<tr>
+<td>煮沸水</td>
+<td>+40</td>
+<td>安全;需鍋+火</td>
+</tr>
+<tr>
+<td>瓶裝水</td>
+<td>+50</td>
+<td>搜刮取得,空瓶可重複裝水</td>
+</tr>
+<tr>
+<td>淨水錠</td>
+<td>—</td>
+<td>1 錠淨化 1 單位髒水</td>
+</tr>
+<tr>
+<td>汽水/果汁</td>
+<td>+35</td>
+<td>+10 體力,微量飽食</td>
+</tr>
+<tr>
+<td>咖啡</td>
+<td>+15</td>
+<td>4 小時內疲勞累積減半</td>
+</tr>
+<tr>
+<td>酒</td>
+<td>+10</td>
+<td>止痛(受傷懲罰暫時消失)但視線搖晃;也可消毒傷口、製作燃燒瓶</td>
+</tr>
+<tr>
+<td>雨水收集桶</td>
+<td>—</td>
+<td>據點設施,自動積水(屬髒水)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-3-醫療類">6.3 醫療類</h3>
+<table>
+<thead>
+<tr>
+<th>物品</th>
+<th>效果</th>
+<th>來源/配方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>布條繃帶</td>
+<td>止血</td>
+<td>撕布料製作</td>
+</tr>
+<tr>
+<td>無菌繃帶</td>
+<td>止血 +10 HP</td>
+<td>診所/醫院</td>
+</tr>
+<tr>
+<td>急救包</td>
+<td>+50 HP,治療流血</td>
+<td>醫院、製作(繃帶+酒精+草藥)</td>
+</tr>
+<tr>
+<td>止痛藥</td>
+<td>30 分鐘忽略傷勢懲罰</td>
+<td>藥局</td>
+</tr>
+<tr>
+<td>抗生素</td>
+<td>治療痢疾/感冒,感染值凍結 2 小時</td>
+<td>醫院稀有</td>
+</tr>
+<tr>
+<td>夾板</td>
+<td>治療骨折</td>
+<td>木棍+布</td>
+</tr>
+<tr>
+<td>草藥膏</td>
+<td>+15 HP,緩慢生效</td>
+<td>草藥+乾淨布</td>
+</tr>
+<tr>
+<td>腎上腺素</td>
+<td>體力全滿+10 秒無限體力</td>
+<td>救護車、醫院</td>
+</tr>
+<tr>
+<td>抗病毒血清</td>
+<td>感染值清零(唯一解)</td>
+<td>終局製作/軍事區極稀有掉落</td>
+</tr>
+<tr>
+<td>維他命</td>
+<td>24 小時內數值消耗 -10%</td>
+<td>藥局</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-4-近戰武器">6.4 近戰武器</h3>
+<table>
+<thead>
+<tr>
+<th>武器</th>
+<th>傷害</th>
+<th>特性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>木棒</td>
+<td>15</td>
+<td>隨處可得</td>
+</tr>
+<tr>
+<td>鐵管</td>
+<td>25</td>
+<td>可製作釘管加成流血</td>
+</tr>
+<tr>
+<td>菜刀</td>
+<td>20</td>
+<td>攻速快,可剝獸皮</td>
+</tr>
+<tr>
+<td>消防斧</td>
+<td>45</td>
+<td>可破木門、砍樹兼用</td>
+</tr>
+<tr>
+<td>開山刀</td>
+<td>35</td>
+<td>揮擊範圍大</td>
+</tr>
+<tr>
+<td>棒球棍(釘刺改裝)</td>
+<td>30(40)</td>
+<td>擊退效果佳</td>
+</tr>
+<tr>
+<td>撬棍</td>
+<td>28</td>
+<td>可撬開上鎖門/箱,萬用工具</td>
+</tr>
+<tr>
+<td>長矛</td>
+<td>30</td>
+<td>攻擊距離最遠,可投擲</td>
+</tr>
+<tr>
+<td>武士刀</td>
+<td>55</td>
+<td>稀有,耐久低</td>
+</tr>
+<tr>
+<td>電鋸</td>
+<td>70/秒</td>
+<td>耗油、噪音極大(招屍潮)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-5-遠程武器">6.5 遠程武器</h3>
+<table>
+<thead>
+<tr>
+<th>武器</th>
+<th>傷害</th>
+<th>噪音</th>
+<th>彈藥</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>彈弓</td>
+<td>8</td>
+<td>無聲</td>
+<td>石頭(無限撿)</td>
+</tr>
+<tr>
+<td>自製弓</td>
+<td>30</td>
+<td>無聲</td>
+<td>木箭(可回收)</td>
+</tr>
+<tr>
+<td>複合弓</td>
+<td>45</td>
+<td>無聲</td>
+<td>碳纖箭</td>
+</tr>
+<tr>
+<td>十字弓</td>
+<td>55</td>
+<td>極低</td>
+<td>弩矢</td>
+</tr>
+<tr>
+<td>手槍 9mm</td>
+<td>35</td>
+<td>高</td>
+<td>9mm</td>
+</tr>
+<tr>
+<td>左輪 .357</td>
+<td>55</td>
+<td>高</td>
+<td>.357</td>
+</tr>
+<tr>
+<td>獵槍(霰彈)</td>
+<td>90(近距)</td>
+<td>極高</td>
+<td>12 鉛徑</td>
+</tr>
+<tr>
+<td>栓動步槍</td>
+<td>80</td>
+<td>極高</td>
+<td>7.62,可裝瞄準鏡</td>
+</tr>
+<tr>
+<td>衝鋒槍</td>
+<td>25×連發</td>
+<td>高</td>
+<td>9mm,軍事區</td>
+</tr>
+<tr>
+<td>突擊步槍</td>
+<td>40×連發</td>
+<td>極高</td>
+<td>5.56,最稀有</td>
+</tr>
+<tr>
+<td>滅音器配件</td>
+<td>—</td>
+<td>槍聲降 70%</td>
+<td>可製作(簡易版耐久 20 發)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-6-投擲物與陷阱">6.6 投擲物與陷阱</h3>
+<ul>
+<li><strong>燃燒瓶</strong>:酒+布,範圍燃燒,對屍群極有效。</li>
+<li><strong>土製炸彈</strong>:火藥+罐頭+引信。</li>
+<li><strong>鐵管炸彈、汽油彈、煙霧彈</strong>(掩護撤離)。</li>
+<li><strong>噪音誘餌</strong>:鬧鐘/收音機,引開感染者的核心潛行道具。</li>
+<li><strong>捕獸夾</strong>:定身敵人並造成流血;也能抓兔子。</li>
+<li><strong>尖刺陷阱、絆線警報(空罐+繩)、電擊柵欄(需電力)</strong>。</li>
+</ul>
+<h3 id="6-7-工具類">6.7 工具類</h3>
+<p>斧頭(砍樹)、十字鎬(採礦)、鏟子(挖掘/埋藏物資)、鐵鎚(建造)、開罐器、打火機/火柴/打火石、手電筒(耗電池)、頭燈、望遠鏡、指南針、地圖(探索後標註)、釣竿、水壺、撬鎖工具(小遊戲:轉動時機判定)、修理工具箱、汽油桶、對講機(多人模式通訊)。</p>
+<h3 id="6-8-服裝與護具-具備-防護值-保暖值-噪音值-負重加成">6.8 服裝與護具(具備:防護值/保暖值/噪音值/負重加成)</h3>
+<table>
+<thead>
+<tr>
+<th>部位</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>頭</td>
+<td>棒球帽、摩托車安全帽(防咬頭)、防毒面具(毒氣區必備)、軍用頭盔</td>
+</tr>
+<tr>
+<td>身</td>
+<td>T恤、皮夾克(防抓傷)、警用防刺背心、軍用防彈衣</td>
+</tr>
+<tr>
+<td>腿/腳</td>
+<td>牛仔褲、運動鞋(低噪音)、登山靴(涉水保暖)、軍靴</td>
+</tr>
+<tr>
+<td>手</td>
+<td>工作手套(採集不受傷)、戰術手套</td>
+</tr>
+<tr>
+<td>背包</td>
+<td>書包(+8 格)、登山包(+16 格)、軍用背包(+24 格)</td>
+</tr>
+<tr>
+<td>特殊</td>
+<td>雨衣(防淋濕)、吉利服(潛行偵測 -40%)、自製護甲(輪胎皮+膠帶)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-9-材料與零件">6.9 材料與零件</h3>
+<p>木材、石頭、鐵礦→鐵錠、廢金屬、布料、皮革(鞣製)、繩索、釘子、膠帶(萬用)、玻璃瓶、塑膠、電子零件、電池、電線、火藥(拆彈藥/木炭+硝石)、水泥、汽油、引擎零件、輪胎、彈簧、羽毛(做箭)、獸骨(骨刀/魚鉤)。</p>
+<h3 id="6-10-特殊-劇情物品">6.10 特殊/劇情物品</h3>
+<p>研究員日誌(散落各地,拼湊病毒真相)、鑰匙卡(軍事區門禁)、血清配方三部曲(醫院/研究所/軍事實驗室各一)、無線電零件(修好後可呼叫「淨區」觸發結局)、音樂盒/照片(NPC 任務信物)。</p>
+<hr />
+<h2 id="7-遊戲系統與多種玩法">7. 遊戲系統與多種玩法</h2>
+<h3 id="7-1-製作系統-Crafting">7.1 製作系統(Crafting)</h3>
+<ul>
+<li>分級工作站:<strong>徒手 → 工作台 → 熔爐 → 縫紉機 → 化學台 → 軍械台</strong>,越高級能做的東西越多。</li>
+<li>配方透過「撿到的說明書/雜誌」解鎖(例:《野外求生月刊》解鎖燻肉架),鼓勵探索。</li>
+<li>範例配方:</li>
+<li>布條繃帶 = 布料×2</li>
+<li>自製弓 = 木棍×3 + 繩索×1(需工作台)</li>
+<li>燃燒瓶 = 玻璃瓶 + 酒 + 布料</li>
+<li>滅音器 = 鐵管 + 廢金屬×3 + 膠帶(需軍械台)</li>
+<li>血清 = 變異體樣本 + 抗生素×3 + 化學套件(需研究所化學台)</li>
+</ul>
+<h3 id="7-2-建造與據點系統-Base-Building">7.2 建造與據點系統(Base Building)</h3>
+<ul>
+<li><strong>兩種路線</strong>:① 空地自建(地基→牆→屋頂,木製/金屬/混凝土三級材質)② 佔領現有建築整修(封窗、加固門、清空感染者)。</li>
+<li>防禦設施:木刺牆、鐵絲網、瞭望塔、絆線警報、電擊柵欄、加固門(可上鎖)。</li>
+<li>機能設施:營火/火爐、雨水收集桶、菜園、雞舍(撿蛋)、燻肉架、儲物箱、床(存檔+快轉時間)、發電機(耗油)→ 電燈/冰箱/電動工具。</li>
+<li><strong>據點襲擊事件</strong>:每 3~7 天隨機一波屍潮夜襲(規模隨遊戲天數成長),噪音大的據點更常被襲擊 —— 讓建造防禦有意義。</li>
+</ul>
+<h3 id="7-3-農耕與畜牧">7.3 農耕與畜牧</h3>
+<ul>
+<li>作物:馬鈴薯(耐旱)、胡蘿蔔、番茄、玉米、藥草;需澆水、施肥(腐爛食物堆肥),有生長階段模型。</li>
+<li>動物:捕捉未感染的雞/兔飼養;感染烏鴉會偷襲雞舍。</li>
+<li>季節(進階):冬季作物停產,逼迫玩家秋季囤糧。</li>
+</ul>
+<h3 id="7-4-狩獵-釣魚與採集">7.4 狩獵、釣魚與採集</h3>
+<ul>
+<li>狩獵:追蹤腳印/血跡,弓箭無聲狩獵不驚動感染者;剝皮取得肉+皮革+骨頭。</li>
+<li>釣魚:湖河海不同魚種,小遊戲式收竿判定。</li>
+<li>採集:草藥辨識(技能影響)、蜂巢採蜜、鳥巢取蛋。</li>
+</ul>
+<h3 id="7-5-載具系統">7.5 載具系統</h3>
+<table>
+<thead>
+<tr>
+<th>載具</th>
+<th>特性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>腳踏車</td>
+<td>無聲、不耗油,前期神器</td>
+</tr>
+<tr>
+<td>摩托車</td>
+<td>快、耗油少、噪音中</td>
+</tr>
+<tr>
+<td>皮卡車</td>
+<td>大載貨空間=移動倉庫,可衝撞感染者(損耐久)</td>
+</tr>
+<tr>
+<td>巴士(進階)</td>
+<td>可改裝成移動據點</td>
+</tr>
+<tr>
+<td>- 載具需找齊零件修復(引擎、輪胎、電瓶)+ 汽油(可從廢棄車輛虹吸)。</td>
+<td></td>
+</tr>
+<tr>
+<td>- 噪音會沿路吸引感染者 —— 開車進城 = 高速搜刮但高調。</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="7-6-潛行系統">7.6 潛行系統</h3>
+<ul>
+<li>蹲行降噪、草叢隱蔽、投擲石頭引開注意、背後無聲處決(近戰刀類)。</li>
+<li>「氣味」機制:身上塗抹感染者內臟可短時間混入屍群(致敬 TWD),但流汗/淋雨會失效。</li>
+</ul>
+<h3 id="7-7-技能與成長系統-用進廢退-技能點雙軌">7.7 技能與成長系統(用進廢退 + 技能點雙軌)</h3>
+<ul>
+<li><strong>熟練度</strong>:常跑步→體力上限提升;常做菜→烹飪回復量+10%;常用槍→後座力下降。</li>
+<li><strong>技能樹(升級給點)</strong>四大分支:</li>
+<li>生存:野外知識(辨毒菇)、快速採集、耐寒、輕足(降噪)</li>
+<li>戰鬥:近戰專精、槍械專精、弓箭大師、背刺處決</li>
+<li>製作:工匠(省材料 20%)、機械師(修車)、化學家(做藥/炸藥)、建築師</li>
+<li>社交:交易折扣、領袖魅力(NPC 招募上限+)、談判(避免掠奪者衝突)</li>
+</ul>
+<h3 id="7-8-NPC-陣營與交易">7.8 NPC、陣營與交易</h3>
+<ul>
+<li><strong>倖存者 NPC</strong>:可救援並招募回據點,各有專長(醫生/農夫/槍匠/斥候),會自動工作、防守,也要吃喝(增加後勤壓力)。</li>
+<li><strong>陣營</strong>:</li>
+<li>「方舟聚落」:友善商人陣營,用瓶蓋/彈藥當貨幣交易。</li>
+<li>「鏽爪幫」:敵對掠奪者,會伏擊玩家、突襲據點,可攻打其營地。</li>
+<li>「白衣會」:神祕研究者,劇情陣營,給血清主線任務。</li>
+<li>聲望系統:幫助/敵對行為影響各陣營態度與商店價格。</li>
+</ul>
+<h3 id="7-9-任務與劇情">7.9 任務與劇情</h3>
+<ul>
+<li><strong>主線</strong>:追查病毒起源 → 收集三份血清配方 → 潛入研究設施 → 三結局:
+  ① 製成血清廣播配方(犧牲據點被屍潮圍攻)② 獨善其身前往淨區 ③ 留守建立新文明(開放式)。</li>
+<li><strong>支線</strong>:NPC 個人任務(找失散家人、取回遺物)、陣營任務、地標解謎(保險箱密碼藏在日記)。</li>
+<li><strong>動態事件</strong>:空投物資(全圖爭奪)、路過的商隊、求救訊號(可能是陷阱)、屍潮遷徙、直升機墜毀。</li>
+</ul>
+<h3 id="7-10-遊戲模式-多種玩法">7.10 遊戲模式(多種玩法)</h3>
+<table>
+<thead>
+<tr>
+<th>模式</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>劇情模式</strong></td>
+<td>標準體驗,死亡在床重生(掉落部分物品)</td>
+</tr>
+<tr>
+<td><strong>硬核模式</strong></td>
+<td>永久死亡、無 HUD 數值(只有角色動作提示,如肚子叫)、感染無血清</td>
+</tr>
+<tr>
+<td><strong>沙盒模式</strong></td>
+<td>自訂所有參數:感染者數量/速度、資源豐富度、天氣、屍潮頻率</td>
+</tr>
+<tr>
+<td><strong>屍潮防守模式</strong></td>
+<td>純據點防守,一波波進攻,波次間建造升級(類 Rogue-lite)</td>
+</tr>
+<tr>
+<td><strong>和平建造模式</strong></td>
+<td>無敵人,純生存建造種田</td>
+</tr>
+<tr>
+<td><strong>每日挑戰</strong></td>
+<td>固定種子+特殊規則(如:永夜、只能用近戰),排行榜比生存天數</td>
+</tr>
+<tr>
+<td><strong>多人合作(進階)</strong></td>
+<td>2–4 人共享世界,分工搜刮/防守/種田</td>
+</tr>
+</tbody>
+</table>
+<h3 id="7-11-難度自適應細節">7.11 難度自適應細節</h3>
+<ul>
+<li>遊戲天數越多:感染者總量、變異體出現率、屍潮規模緩慢上升 → 前期寬容、後期緊張。</li>
+<li>玩家火力越強,掠奪者裝備也升級(防止後期無聊)。</li>
+</ul>
+<hr />
+<h2 id="8-操作設計-PC">8. 操作設計(PC)</h2>
+<table>
+<thead>
+<tr>
+<th>按鍵</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>WASD / Shift / Space / Ctrl / C</td>
+<td>移動 / 奔跑 / 跳 / 蹲 / 匍匐</td>
+</tr>
+<tr>
+<td>滑鼠左/右鍵</td>
+<td>攻擊/射擊 / 瞄準/格擋</td>
+</tr>
+<tr>
+<td>E / F / R</td>
+<td>互動拾取 / 手電筒 / 換彈</td>
+</tr>
+<tr>
+<td>Tab / B / M / J</td>
+<td>背包 / 建造 / 地圖 / 任務</td>
+</tr>
+<tr>
+<td>1–8</td>
+<td>快捷欄</td>
+</tr>
+<tr>
+<td>G / Q</td>
+<td>投擲 / 快速回頭看(逃跑時查看追兵)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9-給-Claude-Code-的開發提示詞範例">9. 給 Claude Code 的開發提示詞範例</h2>
+<pre><code>第一步請執行:
+「用 Three.js + Vite 建立專案,實作第一人稱控制器(WASD移動、
+Shift奔跑、空白鍵跳躍、滑鼠視角),加入一個 500x500 的地形平面、
+天空盒與日夜循環(一天40分鐘),並顯示 FPS。」
+
+之後依 2.3 節的里程碑 M2~M8 逐步餵給 Claude Code,
+每個里程碑完成後先試玩、回報問題再進下一步。
+</code></pre>
+<h2 id="10-驗收標準-MVP-定義">10. 驗收標準(MVP 定義)</h2>
+<ul>
+<li><input type="checkbox" disabled> 四大數值正確消耗/恢復,歸零有對應懲罰</li>
+<li><input type="checkbox" disabled> 三種生態區可無縫走動,物資點可搜刮</li>
+<li><input type="checkbox" disabled> 至少 3 種感染人類 + 2 種感染動物,AI 具備聽覺/視覺偵測</li>
+<li><input type="checkbox" disabled> 近戰 + 遠程各 3 種武器,含耐久與噪音系統</li>
+<li><input type="checkbox" disabled> 製作台 + 20 種以上配方、營火烹飪</li>
+<li><input type="checkbox" disabled> 可建造基礎據點(牆/門/儲物箱/床)並觸發一次屍潮夜襲</li>
+<li><input type="checkbox" disabled> 存讀檔功能</li>
+</ul>
+  </main>
+</div>
+
+<footer>DEADFALL SPEC v1.0 · BUILT FOR CLAUDE CODE · STAY QUIET, STAY ALIVE</footer>
+
+<script>
+// HUD 數值條進場動畫
+addEventListener('load',()=>{document.querySelectorAll('.hud .bar i').forEach(el=>{el.style.width=el.dataset.w;});});
+// 目錄捲動高亮
+const links=[...document.querySelectorAll('.toc-link')];
+const heads=links.map(a=>document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))).filter(Boolean);
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.remove('active'));const i=heads.indexOf(e.target);if(links[i])links[i].classList.add('active');}});},{rootMargin:'-10% 0px -80% 0px'});
+heads.forEach(h=>io.observe(h));
+</script>
+</body>
+</html>

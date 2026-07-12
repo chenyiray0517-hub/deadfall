@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const L = await import('./src/world/LootSpawner.js');
+
+  const counts = { 荒野區: 0, 鄉村區: 0, 城市區: 0 };
+  for (let i = 0; i < 10000; i++) {
+    const x = (Math.random() * 2 - 1) * 240;
+    const z = (Math.random() * 2 - 1) * 240;
+    counts[T.regionName(x, z)]++;
+  }
+  out.push('區域分布: ' + JSON.stringify(counts));
+  out.push('出生點: ' + T.regionName(T.SPAWN.x, T.SPAWN.z) + ' 高度=' + T.terrainHeight(T.SPAWN.x, T.SPAWN.z).toFixed(2) + ' 深水=' + T.isDeepWater(T.SPAWN.x, T.SPAWN.z));
+  out.push('湖心高度: ' + T.terrainHeight(-160, 90).toFixed(2) + ' 深水=' + T.isDeepWater(-160, 90));
+  out.push('城市高度樣本: ' + [T.terrainHeight(200, 0), T.terrainHeight(180, 100), T.terrainHeight(220, -150)].map(v => v.toFixed(2)).join(', '));
+
+  S.createStructures();
+  T.createTerrain();
+  L.spawnLoot();
+  const kinds = {};
+  for (const s of S.structureSpots) kinds[s.kind] = (kinds[s.kind] || 0) + 1;
+  out.push('建築: ' + JSON.stringify(kinds));
+  const loot = {};
+  for (const p of L.lootPoints) loot[p.type] = (loot[p.type] || 0) + 1;
+  out.push('物資點: ' + JSON.stringify(loot));
+  out.push('碰撞體: boxes=' + T.colliders.boxes.length + ' circles=' + T.colliders.circles.length);
+  out.push('TEST_DONE');
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>

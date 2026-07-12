@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const { Stats } = await import('./src/player/Stats.js');
+  const { Inventory, ITEMS, WEAPON_ORDER, quickbarIds } = await import('./src/player/Items.js');
+  const C = await import('./src/systems/Crafting.js');
+  const I = await import('./src/systems/Interaction.js');
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const Z = await import('./src/entities/Zombies.js');
+  const { Combat } = await import('./src/systems/Combat.js');
+  const THREE = await import('./src/lib/three.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {} };
+  const mgr = new Z.EnemyManager(fakeScene);
+
+  // ── 武器資料 ──
+  test('武器資料齊全', WEAPON_ORDER.every((id) => ITEMS[id]?.weapon && ITEMS[id].dmg > 0 && ITEMS[id].cd > 0));
+
+  // ── 製作武器 ──
+  const inv = new Inventory();
+  const ctx = { nearFire: false, playerPos: { x: 0, z: 0 }, yaw: 0, scene: fakeScene };
+  inv.add('wood', 6); inv.add('cloth', 1);
+  const byId = (id) => C.RECIPES.find((r) => r.id === id);
+  C.craft(byId('bat'), inv, ctx);
+  C.craft(byId('bow'), inv, ctx);
+  C.craft(byId('arrows'), inv, ctx);
+  test('製作武器', inv.count('bat') === 1 && inv.count('bow') === 1 && inv.count('arrow') === 3);
+
+  // ── 快捷欄:武器優先 ──
+  inv.add('berry', 2);
+  const qb = quickbarIds(inv);
+  test('快捷欄組成', qb[0] === 'bat' && qb[1] === 'bow' && qb.includes('berry'), qb.join(','));
+
+  // ── 戰鬥環境 ──
+  const stats = new Stats();
+  const player = { position: new THREE.Vector3(T.SPAWN.x, 0, T.SPAWN.z), yaw: 0, pitch: 0, eyeHeight: 1.7 };
+  const msgs = [];
+  let lastHit = null;
+  const combat = new Combat({
+    camera: new THREE.PerspectiveCamera(), player, stats, inventory: inv, enemies: mgr,
+    toast: (m) => msgs.push(m), isNight: () => 0,
+    onHit: (killed, zb) => { lastHit = { killed, zb }; },
+  });
+
+  // ── 近戰 ──
+  const zb = mgr.zombies[0];
+  zb.pos.set(player.position.x, 0, player.position.z - 2);
+  zb.state = 'wander'; zb.hp = zb.def.hp;
+  combat.equip('bat');
+  const st0 = stats.stamina;
+  combat.tryAttack(1);
+  test('近戰命中扣血', zb.hp === zb.def.hp - 15, `hp=${zb.hp}`);
+  test('近戰消耗體力', stats.stamina === st0 - 8, `st=${stats.stamina}`);
+  test('挨打會反擊追擊', zb.state === 'chase' && zb.staggerT > 0);
+  combat.tryAttack(1);
+  test('冷卻中不能連打', zb.hp === zb.def.hp - 15);
+
+  // ── 近戰耐久 ──
+  zb.hp = 1e9;
+  for (let i = 0; i < 60 && inv.count('bat') > 0; i++) {
+    combat.cd = 0; stats.stamina = 100;
+    combat.tryAttack(1);
+  }
+  test('耐久耗盡武器損壞', inv.count('bat') === 0 && combat.equipped === null, msgs[msgs.length - 1] || '');
+  zb.pos.set(0, 0, 500); // 移開,別擋後面的射擊測試
+
+  // ── 遠程 ──
+  inv.add('pistol', 1);
+  combat.equip('pistol');
+  const zb2 = mgr.zombies[1];
+  zb2.state = 'wander'; zb2.hp = 200;
+  zb2.pos.set(player.position.x, 0.6, player.position.z - 10); // 胸口對準視線高度
+  combat.cd = 0;
+  combat.tryAttack(2);
+  test('沒彈藥不能射擊', zb2.hp === 200 && msgs.some((m) => m.includes('沒有')));
+  inv.add('ammo9', 3);
+  combat.cd = 0;
+  combat.tryAttack(2);
+  test('手槍命中', zb2.hp === 165 && inv.count('ammo9') === 2, `hp=${zb2.hp}`);
+
+  // ── 槍聲驚動遠處感染者 ──
+  const far = mgr.zombies[5];
+  far.state = 'wander';
+  far.pos.set(player.position.x + 40, 0, player.position.z);
+  combat.cd = 0;
+  combat.tryAttack(3);
+  test('槍聲引怪', far.state === 'investigate', `state=${far.state}`);
+
+  // ── 擊殺與屍體 ──
+  zb2.hp = 10;
+  combat.cd = 0;
+  combat.tryAttack(4);
+  test('擊殺倒地成屍體', !zb2.alive && zb2.corpse && lastHit?.killed === true);
+  const nearP = { position: { x: zb2.pos.x + 1, y: 0, z: zb2.pos.z } };
+  const sel = I.findInteraction(nearP, inv, mgr);
+  test('屍體可互動', sel?.kind === 'corpse', sel?.label || 'null');
+  const lootMsg = I.doInteract(sel, inv, stats);
+  test('搜刮屍體', zb2.looted && typeof lootMsg === 'string', lootMsg);
+  test('屍體只能搜一次', I.findInteraction(nearP, inv, mgr)?.kind !== 'corpse');
+
+  // ── 感染判定 ──
+  const origRandom = Math.random;
+  Math.random = () => 0.1; // 鎖定:必中感染
+  const s2 = new Stats();
+  s2.applyBite(10, '被感染者咬死');
+  test('咬傷累積感染值', s2.infection > 0 && s2.hp === 90, `inf=${s2.infection.toFixed(1)}`);
+  const inf0 = s2.infection;
+  s2.update(0.01, 1);
+  test('感染隨時間惡化', s2.infection > inf0);
+  s2.addEffect('antibiotic', 2, '💊');
+  const inf1 = s2.infection;
+  s2.update(0.01, 1);
+  test('抗生素凍結感染', Math.abs(s2.infection - inf1) < 1e-9);
+  const inv3 = new Inventory();
+  inv3.add('serum', 1);
+  inv3.use('serum', s2);
+  test('血清清零', s2.infection === 0);
+  s2.infection = 99.9; s2.effects = [];
+  s2.update(0.01, 1);
+  test('感染滿轉化死亡', !s2.alive && s2.deathCause.includes('轉化'), s2.deathCause);
+  Math.random = origRandom;
+
+  out.push('TEST_DONE');
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>

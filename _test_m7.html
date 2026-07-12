@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const { Stats } = await import('./src/player/Stats.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const I = await import('./src/systems/Interaction.js');
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const Z = await import('./src/entities/Zombies.js');
+  const { Combat } = await import('./src/systems/Combat.js');
+  const B = await import('./src/systems/Building.js');
+  const THREE = await import('./src/lib/three.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const mgr = new Z.EnemyManager(fakeScene);
+  const buildings = new B.Buildings(fakeScene);
+  const defOf = (id) => B.BUILDABLES.find((b) => b.id === id);
+
+  // ── 資料 ──
+  test('建造物資料齊全', B.BUILDABLES.length === 5 &&
+    B.BUILDABLES.every((b) => b.cost && b.hp > 0 && b.size.w > 0));
+
+  // ── 放置流程 ──
+  const P = { x: T.SPAWN.x, z: T.SPAWN.z };
+  test('空地可放置', buildings.validAt(defOf('wall'), P.x, P.z - 6, 0, null));
+
+  const inv = new Inventory();
+  inv.add('wood', 4);
+  const fakePlayer = { position: new THREE.Vector3(P.x, 0, P.z), yaw: 0 };
+  buildings.startPlacing(defOf('wall'));
+  buildings.updateGhost(fakePlayer, inv);
+  const boxesBefore = T.colliders.boxes.length;
+  const msg = buildings.tryPlace(inv);
+  test('放置木牆', msg === '建造了木牆' && buildings.list.length === 1 &&
+    T.colliders.boxes.length === boxesBefore + 1 && inv.count('wood') === 0, msg);
+
+  buildings.updateGhost(fakePlayer, inv); // 沒木頭了
+  test('材料不足擋下', !buildings.placeValid && buildings.tryPlace(inv) === null);
+  buildings.cancelPlacing();
+
+  const wall = buildings.list[0];
+  test('重疊不可放', !buildings.validAt(defOf('wall'), wall.x, wall.z, 0, null));
+
+  // ── 視線:牆擋、低矮物不擋 ──
+  test('木牆擋視線', T.losBlocked(wall.x, wall.z - 2, wall.x, wall.z + 2));
+  const spike = buildings.place(defOf('spikes'), P.x + 8, P.z, 0);
+  test('尖刺不擋視線', !T.losBlocked(spike.x, spike.z - 2, spike.x, spike.z + 2));
+
+  // ── 門 ──
+  const door = buildings.place(defOf('door'), P.x - 8, P.z, 0);
+  const nBoxes = T.colliders.boxes.length;
+  buildings.toggleDoor(door);
+  test('開門移除碰撞', door.open && T.colliders.boxes.length === nBoxes - 1);
+  buildings.toggleDoor(door);
+  test('關門恢復碰撞', !door.open && T.colliders.boxes.length === nBoxes);
+
+  // ── 感染者拆牆 ──
+  const zb = mgr.zombies[0];
+  zb.state = 'chase';
+  zb.pos.set(wall.x, 0, wall.z - 0.6); // 貼牆(實際遊戲中會被碰撞推到 0.5m 處)
+  zb.lastKnown = { x: wall.x, z: wall.z + 6 };
+  zb.lastSeenTime = 5;
+  zb.attackCd = 0;
+  zb.staggerT = 0;
+  const wallHp = wall.hp;
+  zb.update(0.05, {
+    playerPos: new THREE.Vector3(wall.x, 0, wall.z + 60),
+    crouching: false, playerAlive: true, night: 0, manager: mgr, now: 5,
+    buildings, onAttack() {},
+  });
+  test('感染者拆牆', wall.hp === wallHp - zb.def.dmg && zb.lastSeenTime === 5,
+    `hp=${wall.hp}`);
+
+  // ── 牆被打爆會消失 ──
+  buildings.damage(wall, 9999);
+  test('牆被摧毀移除', !buildings.list.includes(wall) &&
+    !T.colliders.boxes.includes(wall.box));
+
+  // ── 尖刺傷害 ──
+  const zb2 = mgr.zombies[1];
+  zb2.state = 'wander';
+  zb2.pos.set(spike.x, 0, spike.z);
+  const zb2Hp = zb2.hp;
+  const spikeHp = spike.hp;
+  const statsA = new Stats();
+  mgr.update(0.5, { position: new THREE.Vector3(0, 0, 200), crouching: false, noiseRadius: 0 },
+    statsA, 0, 1, buildings);
+  test('尖刺傷害感染者', zb2.hp < zb2Hp, `hp=${zb2.hp.toFixed(1)}`);
+  test('尖刺本身會磨損', spike.hp < spikeHp, `hp=${spike.hp.toFixed(1)}`);
+
+  // ── 屍潮 ──
+  const countBefore = mgr.zombies.length;
+  const ts = { day: 5, timeOfDay: 22 };
+  const n = mgr.maybeHorde(ts, new THREE.Vector3(0, 0, 0), 10);
+  test('屍潮生成', n > 0 && mgr.zombies.length === countBefore + n, `n=${n}`);
+  test('屍潮直奔玩家', mgr.zombies[mgr.zombies.length - 1].state === 'chase');
+  test('屍潮有冷卻', mgr.maybeHorde(ts, new THREE.Vector3(0, 0, 0), 10) === 0 &&
+    mgr.nextHordeDay >= 8);
+
+  // ── 睡覺 ──
+  const ts2 = { timeOfDay: 22.5, day: 1 };
+  const s = new Stats();
+  s.hp = 40;
+  const skipped = B.sleepUntilMorning(ts2, s);
+  test('睡覺快轉到清晨', ts2.timeOfDay === 6 && ts2.day === 2 && Math.abs(skipped - 7.5) < 0.01);
+  test('睡覺回復', s.hp === 60 && s.stamina === s.staminaMax);
+  const ts3 = { timeOfDay: 3, day: 4 };
+  B.sleepUntilMorning(ts3, s);
+  test('凌晨睡不跨日', ts3.day === 4 && ts3.timeOfDay === 6);
+
+  // ── 死亡掉一半 ──
+  const inv2 = new Inventory();
+  inv2.add('wood', 7);
+  inv2.add('ammo9', 1);
+  B.dropHalfInventory(inv2);
+  test('死亡掉一半物品', inv2.count('wood') === 4 && inv2.count('ammo9') === 1);
+
+  // ── 床與重生點 ──
+  const bed = buildings.place(defOf('bed'), P.x, P.z + 8, 0);
+  test('床是重生點', buildings.respawnPoint() === bed);
+  buildings.destroy(bed);
+  test('床被拆就沒重生點', buildings.respawnPoint() === null);
+
+  // ── 儲物箱 ──
+  const chest = buildings.place(defOf('chest'), P.x + 4, P.z + 4, 0);
+  chest.storage.add('wood', 3);
+  test('儲物箱可存物', chest.storage.count('wood') === 3);
+  const selChest = I.findInteraction({ position: { x: chest.x + 1, y: 0, z: chest.z } },
+    inv, mgr, buildings);
+  test('儲物箱可互動', selChest?.kind === 'chest', selChest?.label || 'null');
+
+  // ── 斧頭砍樹 ──
+  const tree = T.colliders.circles[0];
+  const inv3 = new Inventory();
+  inv3.add('axe', 1);
+  const statsB = new Stats();
+  const combat = new Combat({
+    camera: new THREE.PerspectiveCamera(),
+    player: { position: new THREE.Vector3(tree.x, 0, tree.z + 2), yaw: 0, pitch: 0, eyeHeight: 1.7 },
+    stats: statsB, inventory: inv3,
+    enemies: { zombies: [], hearNoise() {} },
+    toast() {}, isNight: () => 0, onHit() {},
+  });
+  combat.equip('axe');
+  combat.tryAttack(1);
+  test('斧頭砍樹得木柴', inv3.count('wood') === 2 && combat.durabilityOf('axe') === 79,
+    `wood=${inv3.count('wood')} dur=${combat.durabilityOf('axe')}`);
+
+  out.push('TEST_DONE');
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>

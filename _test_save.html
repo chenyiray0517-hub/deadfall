@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+// M7.5 邏輯測試:存讀檔 + 感染犬嗅覺 + 感染者重生/屍體清理 + removeEffect 修復
+// headless:chrome --headless --dump-dom http://localhost:8000/_test_save.html
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+const backup = localStorage.getItem('deadfall_save_v1'); // 保護真實存檔
+try {
+  const { Stats } = await import('./src/player/Stats.js');
+  const { Inventory } = await import('./src/player/Items.js');
+  const L = await import('./src/world/LootSpawner.js');
+  const C = await import('./src/systems/Crafting.js');
+  const Z = await import('./src/entities/Zombies.js');
+  const B = await import('./src/systems/Building.js');
+  const { Combat } = await import('./src/systems/Combat.js');
+  const { TimeSystem } = await import('./src/core/TimeSystem.js');
+  const SV = await import('./src/systems/SaveSystem.js');
+  const T = await import('./src/world/Terrain.js');
+  const THREE = await import('./src/lib/three.js');
+
+  const scene = new THREE.Scene();
+  const fakeScene = { add() {}, remove() {} };
+  const defOf = (id) => B.BUILDABLES.find((b) => b.id === id);
+
+  // ── removeEffect 修復(抗生素之前會 crash)──
+  const s0 = new Stats();
+  s0.addEffect('dysentery', 3, '🤢 痢疾');
+  s0.removeEffect('dysentery');
+  test('removeEffect 移除狀態', !s0.hasEffect('dysentery'));
+  const inv0 = new Inventory();
+  inv0.add('antibiotic', 1);
+  let crashed = false;
+  try { inv0.use('antibiotic', s0); } catch { crashed = true; }
+  test('抗生素不再 crash', !crashed && s0.hasEffect('antibiotic'));
+
+  // ── 感染犬嗅覺:帶傷玩家不用視線也會被聞到 ──
+  const dogSave = { nextHordeDay: 3, hordeHour: 22, zombies: [
+    { type: 'dog', x: 10, z: 10, hp: 35, alive: true, homeX: 10, homeZ: 10 },
+  ] };
+  const awayFacing = Math.atan2(-5, -5) + Math.PI; // 背對玩家,排除視覺偵測
+  const mockPlayer = { position: new THREE.Vector3(5, 0, 5), crouching: false, noiseRadius: 0 };
+
+  const mgr = new Z.EnemyManager(fakeScene);
+  mgr.loadFrom(dogSave);
+  test('loadFrom 重建感染者', mgr.zombies.length === 1 && mgr.zombies[0].alive);
+  const dog = mgr.zombies[0];
+  dog.facing = awayFacing;
+  dog.senseTimer = 0;
+  const wounded = new Stats();
+  wounded.hp = 40;
+  mgr.respawnTimer = 999;
+  mgr.update(0.05, mockPlayer, wounded, 0, 1, null);
+  test('感染犬聞到帶傷玩家', dog.state === 'investigate' &&
+    Math.hypot(dog.target.x - 5, dog.target.z - 5) < 0.01, dog.state);
+
+  const mgrH = new Z.EnemyManager(fakeScene);
+  mgrH.loadFrom(dogSave);
+  const dog2 = mgrH.zombies[0];
+  dog2.facing = awayFacing;
+  dog2.senseTimer = 0;
+  mgrH.respawnTimer = 999;
+  mgrH.update(0.05, mockPlayer, new Stats(), 0, 1, null); // 滿血
+  test('沒受傷聞不到', dog2.state === 'wander', dog2.state);
+
+  // ── 死後重生(人口回補)──
+  mgr.populationTarget = 3;
+  mgr.respawnTimer = 0.01;
+  mgr.update(0.05, mockPlayer, wounded, 0, 2, null);
+  test('人口不足會補生', mgr.zombies.length === 2, `n=${mgr.zombies.length}`);
+  const spawned = mgr.zombies[1];
+  test('補生在 55m 外', Math.hypot(spawned.pos.x - 5, spawned.pos.z - 5) >= 55);
+  test('白天重生間隔 40s', Math.abs(mgr.respawnTimer - 40) < 1);
+  mgr.populationTarget = 2; // 已滿
+  mgr.respawnTimer = 0.01;
+  mgr.update(0.05, mockPlayer, wounded, 1, 3, null); // 夜晚
+  test('夜晚重生間隔減半、滿了不補', Math.abs(mgr.respawnTimer - 20) < 1 && mgr.zombies.length === 2);
+
+  // ── 屍體清理 ──
+  spawned.die(10);
+  mgr.update(0.05, mockPlayer, wounded, 0, 100, null);
+  test('未搜刮屍體留著', mgr.zombies.includes(spawned));
+  spawned.looted = true;
+  mgr.update(0.05, mockPlayer, wounded, 0, 200, null); // 記下搜刮時刻
+  mgr.update(0.05, mockPlayer, wounded, 0, 225, null); // 25 秒後
+  test('搜刮完屍體消失', !mgr.zombies.includes(spawned), `n=${mgr.zombies.length}`);
+
+  // ── 建築 serialize/loadFrom ──
+  const b1 = new B.Buildings(fakeScene);
+  const wall = b1.place(defOf('wall'), 100, 100, 0);
+  wall.hp = 123;
+  const door = b1.place(defOf('door'), 104, 100, Math.PI / 2);
+  b1.toggleDoor(door); // 開著存
+  const chest = b1.place(defOf('chest'), 108, 100, 0);
+  chest.storage.add('wood', 7);
+  chest.storage.add('serum', 1);
+  const bedA = b1.place(defOf('bed'), 112, 100, 0);
+  b1.place(defOf('bed'), 116, 100, 0);
+  b1.homeBed = bedA; // 故意不是最後一張床
+
+  const bData = JSON.parse(JSON.stringify(b1.serialize()));
+  const b2 = new B.Buildings(fakeScene);
+  const boxesBefore = T.colliders.boxes.length;
+  b2.loadFrom(bData);
+  test('建築讀回數量', b2.list.length === 5, `n=${b2.list.length}`);
+  test('門開著讀回且不佔碰撞', b2.list.find((b) => b.def.door).open &&
+    T.colliders.boxes.length === boxesBefore + 4);
+  test('建築耐久讀回', b2.list.find((b) => b.def.id === 'wall').hp === 123);
+  const chest2 = b2.list.find((b) => b.def.chest);
+  test('箱內物品讀回', chest2.storage.count('wood') === 7 && chest2.storage.count('serum') === 1);
+  test('重生床讀回(非最後一張)', b2.homeBed && Math.abs(b2.homeBed.x - 112) < 0.01);
+
+  // ── 整包存讀 round-trip ──
+  const corpseZ = mgr.respawnOne(mockPlayer.position); // 加一具屍體進存檔
+  corpseZ.die(0);
+  corpseZ.corpseLoot = { cloth: 2 };
+  corpseZ.stuckArrows = 1;
+
+  const time1 = new TimeSystem(scene);
+  time1.timeOfDay = 14.5;
+  time1.day = 6;
+  const stats1 = new Stats();
+  stats1.hp = 42.5;
+  stats1.hunger = 33;
+  stats1.infection = 12;
+  stats1.addEffect('dysentery', 3, '🤢 痢疾');
+  const inv1 = new Inventory();
+  inv1.add('bat', 1);
+  inv1.add('wood', 9);
+  inv1.add('arrow', 5);
+  const player1 = { position: new THREE.Vector3(50, 0, -30), yaw: 1.2, pitch: -0.2, velocityY: 0, onGround: true };
+  const combat1 = new Combat({
+    camera: new THREE.PerspectiveCamera(), player: player1, stats: stats1,
+    inventory: inv1, enemies: mgr, toast() {}, isNight: () => 0,
+  });
+  combat1.equipped = 'bat';
+  combat1.dur.set('bat', 17);
+  L.spawnLoot();
+  const lp = L.lootPoints[0];
+  lp.taken = true;
+  C.placeCampfire(scene, 3, 3);
+  const firesBefore = C.campfires.length;
+
+  const ctx1 = { timeSystem: time1, stats: stats1, inventory: inv1, player: player1, combat: combat1, buildings: b1, enemies: mgr, scene };
+  test('存檔成功', SV.saveGame(ctx1) && SV.hasSave());
+  const data = SV.peekSave();
+
+  // 讀進全新一組系統
+  const time2 = new TimeSystem(scene);
+  const stats2 = new Stats();
+  const inv2 = new Inventory();
+  const player2 = { position: new THREE.Vector3(), yaw: 0, pitch: 0, velocityY: 3, onGround: false };
+  const combat2 = new Combat({
+    camera: new THREE.PerspectiveCamera(), player: player2, stats: stats2,
+    inventory: inv2, enemies: mgrH, toast() {}, isNight: () => 0,
+  });
+  const b3 = new B.Buildings(fakeScene);
+  const mgr3 = new Z.EnemyManager(fakeScene);
+  lp.taken = false; // 弄亂再讀回
+  SV.loadGame(data, { timeSystem: time2, stats: stats2, inventory: inv2, player: player2, combat: combat2, buildings: b3, enemies: mgr3, scene });
+
+  test('時間讀回', time2.day === 6 && Math.abs(time2.timeOfDay - 14.5) < 1e-9);
+  test('數值與狀態效果讀回', Math.abs(stats2.hp - 42.5) < 1e-9 &&
+    stats2.infection === 12 && stats2.hasEffect('dysentery'));
+  test('背包讀回', inv2.count('wood') === 9 && inv2.count('arrow') === 5);
+  test('位置視角讀回', Math.abs(player2.position.x - 50) < 1e-9 &&
+    Math.abs(player2.yaw - 1.2) < 1e-9 && player2.onGround && player2.velocityY === 0);
+  test('武器與耐久讀回', combat2.equipped === 'bat' && combat2.dur.get('bat') === 17);
+  test('建築整包讀回', b3.list.length === 5 &&
+    b3.list.find((b) => b.def.chest).storage.count('wood') === 7);
+  test('感染者數量讀回', mgr3.zombies.length === mgr.zombies.length,
+    `${mgr3.zombies.length}/${mgr.zombies.length}`);
+  const c3 = mgr3.zombies.find((z) => z.corpse);
+  test('屍體狀態讀回', c3 && !c3.alive && c3.corpseLoot.cloth === 2 && c3.stuckArrows === 1);
+  test('屍潮排程讀回', mgr3.nextHordeDay === mgr.nextHordeDay && mgr3.hordeHour === mgr.hordeHour);
+  test('已拿物資點讀回', lp.taken === true);
+  test('營火讀回', C.campfires.length === firesBefore + 1, `n=${C.campfires.length}`);
+  test('清除存檔', (SV.clearSave(), !SV.hasSave()));
+
+  out.push('TEST_DONE');
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+} finally {
+  // 還原真實存檔
+  if (backup !== null) localStorage.setItem('deadfall_save_v1', backup);
+  else localStorage.removeItem('deadfall_save_v1');
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>殘存之境 Deadfall</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    color: #d8d4c2; text-shadow: 0 1px 3px rgba(0,0,0,.8);
+  }
+  #fps {
+    position: absolute; top: 12px; left: 14px;
+    font-size: 13px; color: #8a9a6b;
+  }
+  #clock {
+    position: absolute; top: 12px; right: 14px;
+    font-size: 14px; text-align: right; line-height: 1.5;
+  }
+  #clock .day { color: #e5a13c; }
+  #clock .region { font-size: 12px; letter-spacing: .25em; color: #8a9a6b; }
+  #crosshair {
+    position: absolute; top: 50%; left: 50%;
+    width: 4px; height: 4px; margin: -2px 0 0 -2px;
+    background: rgba(216,212,194,.75); border-radius: 50%;
+  }
+
+  /* ── 四大數值條 ── */
+  #stats {
+    position: absolute; left: 14px; bottom: 14px;
+    display: grid; grid-template-columns: repeat(2, 190px); gap: 8px 16px;
+  }
+  #stats .stat { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #stats .ico { width: 18px; text-align: center; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  #stats .bar {
+    flex: 1; height: 9px; border: 1px solid rgba(51,56,43,.9);
+    background: rgba(6,8,4,.65); overflow: hidden;
+  }
+  #stats .bar i {
+    display: block; height: 100%; width: 100%;
+    transform-origin: left; transform: scaleX(1);
+  }
+  #bar-hp i { background: #c84a3c; }
+  #bar-hunger i { background: #e5a13c; }
+  #bar-thirst i { background: #5f8ca3; }
+  #bar-stamina i { background: #8a9a6b; }
+  #stats .bar.low i { animation: lowblink 1s steps(2) infinite; }
+  @keyframes lowblink { 50% { opacity: .45; } }
+  #effects {
+    position: absolute; left: 14px; bottom: 66px;
+    font-size: 13px; color: #d8a0a0;
+  }
+
+  /* ── 快捷欄 ── */
+  #quickbar {
+    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+    display: flex; gap: 6px;
+  }
+  #quickbar .slot {
+    width: 52px; height: 52px; position: relative;
+    background: rgba(6,8,4,.6); border: 1px solid rgba(51,56,43,.9);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  #quickbar .slot.empty { opacity: .35; }
+  #quickbar .slot.sel {
+    border-color: #e5a13c;
+    box-shadow: 0 0 8px rgba(229,161,60,.45);
+  }
+  #quickbar .slot .key {
+    position: absolute; top: 2px; left: 4px;
+    font-size: 10px; color: #9a977f;
+  }
+  #quickbar .slot .cnt {
+    position: absolute; bottom: 2px; right: 4px;
+    font-size: 11px; color: #e5a13c;
+  }
+
+  /* ── 武器資訊 / 命中標記(M6)── */
+  #weapon {
+    position: absolute; right: 14px; bottom: 14px;
+    font-size: 13px; color: #d8d4c2;
+    background: rgba(6,8,4,.6); border: 1px solid rgba(51,56,43,.9);
+    padding: 8px 14px;
+  }
+  #hitmark {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 18px; font-weight: bold; color: #e5a13c;
+  }
+
+  /* ── 互動提示 / 訊息 ── */
+  #prompt {
+    position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%);
+    font-size: 14.5px; color: #efeadb;
+    background: rgba(6,8,4,.65); border: 1px solid rgba(51,56,43,.9);
+    padding: 6px 16px; white-space: nowrap;
+  }
+  #prompt b { color: #e5a13c; }
+  #toasts {
+    position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%);
+    display: flex; flex-direction: column-reverse; align-items: center; gap: 4px;
+    pointer-events: none;
+  }
+  .toast {
+    font-size: 13.5px; color: #d8d4c2; white-space: nowrap;
+    background: rgba(6,8,4,.7); padding: 4px 14px;
+    animation: toastfade 2.4s forwards;
+  }
+  @keyframes toastfade { 0% { opacity: 0; } 8% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ── 背包/製作面板 ── */
+  #panel {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(520px, 90vw);
+    background: rgba(10, 12, 8, .92); border: 1px solid #33382b;
+    padding: 22px 26px; font-size: 14px;
+  }
+  #panel h2 {
+    font-size: 15px; letter-spacing: .3em; color: #e5a13c; margin-bottom: 12px;
+  }
+  #panel .mats { color: #9a977f; line-height: 1.9; margin-bottom: 16px; }
+  #panel .recipe { padding: 5px 0; color: #d8d4c2; }
+  #panel .recipe .k { color: #e5a13c; font-family: 'JetBrains Mono', monospace; }
+  #panel .recipe.no { color: #6a6a58; }
+  #panel .recipe .req { color: #9a977f; font-size: 12.5px; }
+  #panel .hint { margin-top: 14px; font-size: 12px; color: #6a6a58; }
+
+  /* ── 狀態視覺效果 ── */
+  #vig-hp {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(140,20,10,.55) 100%);
+    transition: opacity .3s;
+  }
+  #vig-thirst {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(40,45,55,.6) 100%);
+    transition: opacity .5s;
+  }
+
+  /* ── 死亡畫面 ── */
+  #death-overlay {
+    position: fixed; inset: 0; pointer-events: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(8, 4, 3, .88);
+    font-family: 'Noto Sans TC', sans-serif; color: #d8d4c2;
+  }
+  #death-overlay h1 {
+    font-size: 52px; letter-spacing: .3em; color: #c84a3c; margin-bottom: 14px;
+  }
+  #death-overlay .cause { font-size: 16px; color: #9a977f; margin-bottom: 6px; }
+  #death-overlay .days { font-size: 15px; color: #e5a13c; margin-bottom: 36px; }
+  #death-overlay button {
+    pointer-events: auto; cursor: pointer;
+    font-family: inherit; font-size: 16px; letter-spacing: .2em;
+    color: #d8d4c2; background: none;
+    border: 1px solid #8a9a6b; padding: 12px 40px;
+  }
+  #death-overlay button:hover { background: rgba(138,154,107,.2); }
+  #death-overlay #restart-btn {
+    margin-top: 14px; font-size: 13px; padding: 8px 24px;
+    border-color: #55524c; color: #9a977f;
+  }
+  #start-overlay {
+    position: fixed; inset: 0; pointer-events: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(10, 12, 8, .82); cursor: pointer;
+    font-family: 'Noto Sans TC', sans-serif; color: #d8d4c2;
+  }
+  #start-overlay h1 {
+    font-size: 42px; letter-spacing: .2em; color: #efeadb; margin-bottom: 6px;
+  }
+  #start-overlay .en {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px;
+    letter-spacing: .4em; color: #e5a13c; margin-bottom: 28px;
+  }
+  #start-overlay .keys {
+    font-size: 13.5px; color: #9a977f; line-height: 2; text-align: center;
+  }
+  #start-overlay .keys b { color: #d8d4c2; }
+  #start-overlay .click-hint {
+    margin-top: 30px; font-size: 15px; color: #e5a13c;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  #save-btns { margin-top: 30px; display: flex; gap: 14px; }
+  #save-btns button {
+    pointer-events: auto; cursor: pointer;
+    font-family: inherit; font-size: 15px; letter-spacing: .15em;
+    color: #d8d4c2; background: none;
+    border: 1px solid #8a9a6b; padding: 12px 30px;
+  }
+  #save-btns button:hover { background: rgba(138,154,107,.2); }
+  #save-btns #newgame-btn { border-color: #55524c; color: #9a977f; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="vig-thirst"></div>
+<div id="vig-hp"></div>
+
+<div id="hud">
+  <div id="fps">FPS --</div>
+  <div id="clock"><span class="day">第 1 天</span><br><span class="time">06:00</span></div>
+  <div id="crosshair" class="hidden"></div>
+  <div id="hitmark" class="hidden">✕</div>
+  <div id="weapon" class="hidden"></div>
+  <div id="stats" class="hidden">
+    <div class="stat"><span class="ico">❤</span><div class="bar" id="bar-hp"><i></i></div></div>
+    <div class="stat"><span class="ico">🍖</span><div class="bar" id="bar-hunger"><i></i></div></div>
+    <div class="stat"><span class="ico">💧</span><div class="bar" id="bar-thirst"><i></i></div></div>
+    <div class="stat"><span class="ico">⚡</span><div class="bar" id="bar-stamina"><i></i></div></div>
+  </div>
+  <div id="effects"></div>
+  <div id="quickbar" class="hidden"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="toasts"></div>
+  <div id="panel" class="hidden"></div>
+</div>
+
+<div id="death-overlay" class="hidden">
+  <h1>你沒能撐過去</h1>
+  <div class="cause"></div>
+  <div class="days"></div>
+  <button id="respawn-btn">重新開始</button>
+  <button id="restart-btn" class="hidden">重新開始(放棄這一輪)</button>
+</div>
+
+<div id="start-overlay">
+  <h1>殘存之境</h1>
+  <div class="en">DEADFALL — M7.5 BUILD</div>
+  <div class="keys">
+    <b>WASD</b> 移動　<b>Shift</b> 奔跑　<b>Space</b> 跳躍　<b>Ctrl</b> 蹲伏（潛行）　<b>滑鼠左鍵</b> 攻擊<br>
+    <b>E</b> 互動　<b>Tab</b> 背包/製作　<b>B</b> 建造　<b>1-8</b> 快捷欄（武器=裝備、物品=使用）　<b>T</b> 時間加速<br>
+    <span style="color:#c84a3c">夜裡會有屍潮襲擊——用斧頭砍樹、築牆設刺、放張床,天黑前守好你的據點。</span>
+  </div>
+  <div id="save-btns" class="hidden">
+    <button id="continue-btn">▶ 繼續上次</button>
+    <button id="newgame-btn">⟲ 重新開始</button>
+  </div>
+  <div class="click-hint" id="click-hint">點擊畫面開始</div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

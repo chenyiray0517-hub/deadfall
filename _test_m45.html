@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const { Stats } = await import('./src/player/Stats.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const L = await import('./src/world/LootSpawner.js');
+  const C = await import('./src/systems/Crafting.js');
+  const Z = await import('./src/entities/Zombies.js');
+
+  // ── M4: 背包與物品 ──
+  let s = new Stats(); s.hunger = 50; s.thirst = 50;
+  const inv = new Inventory();
+  inv.add('berry', 3);
+  let msg = inv.use('berry', s);
+  test('吃野莓', s.hunger === 58 && s.thirst === 53 && inv.count('berry') === 2, msg);
+
+  inv.add('bottled', 1);
+  msg = inv.use('bottled', s);
+  test('喝瓶裝水得空瓶', s.thirst === 100 && inv.count('empty') === 1, msg);
+
+  // 髒水必中痢疾(鎖定隨機)
+  const origRandom = Math.random;
+  Math.random = () => 0.1;
+  inv.add('dirty', 1);
+  s.thirst = 10;
+  inv.use('dirty', s);
+  test('髒水痢疾', s.hasEffect('dysentery') && inv.count('empty') === 2);
+  // 痢疾口渴 ×3:一遊戲小時應 -7.5
+  const before = s.thirst;
+  s.update(0.01, 1);
+  test('痢疾口渴x3', Math.abs((before - s.thirst) - 7.5) < 0.1, `drop=${(before - s.thirst).toFixed(2)}`);
+  // 痢疾 3 小時後解除
+  s.update(0.01, 3.1);
+  test('痢疾過期', !s.hasEffect('dysentery'));
+  Math.random = origRandom;
+
+  // ── M4: 製作 ──
+  const fakeScene = { add() {} };
+  const inv2 = new Inventory();
+  inv2.add('cloth', 2);
+  const ctx = { nearFire: false, playerPos: { x: 0, z: 0 }, yaw: 0, scene: fakeScene };
+  msg = C.craft(C.RECIPES[0], inv2, ctx);
+  test('製作繃帶', inv2.count('bandage') === 1 && inv2.count('cloth') === 0, msg);
+  test('材料不足擋下', C.craft(C.RECIPES[0], inv2, ctx) === null);
+
+  inv2.add('dirty', 1);
+  test('煮水需營火', C.craft(C.RECIPES[2], inv2, ctx) === null);
+  inv2.add('wood', 3);
+  C.craft(C.RECIPES[1], inv2, ctx); // 放營火(0,-2)
+  test('營火判定', C.isNearFire({ x: 0, z: -2 }) && !C.isNearFire({ x: 50, z: 50 }));
+  msg = C.craft(C.RECIPES[2], inv2, { ...ctx, nearFire: true });
+  test('營火旁煮水', inv2.count('boiled') === 1, msg);
+
+  // ── M4: 世界物資點拾取 ──
+  S.createStructures();
+  T.createTerrain();
+  L.spawnLoot();
+  const crate = L.lootPoints.find((p) => p.type === 'crate');
+  const got = L.takeLoot(crate);
+  const totalGot = Object.values(got).reduce((a, b) => a + b, 0);
+  test('搜刮補給箱', crate.taken && totalGot >= 2, JSON.stringify(got));
+
+  // ── M5: 感染者 ──
+  const mgr = new Z.EnemyManager(fakeScene);
+  test('感染者生成', mgr.zombies.length >= 25, `count=${mgr.zombies.length}`);
+
+  const zb = mgr.zombies[0];
+  // 視覺:正前方 10m 看得到
+  zb.pos.set(0, 0, 0); zb.facing = 0; zb.state = 'wander';
+  test('視覺-正前方', zb.canSee({ x: 0, z: 10 }, false, 0));
+  test('視覺-背後看不到', !zb.canSee({ x: 0, z: -10 }, false, 0));
+  test('視覺-蹲伏距離減半', !zb.canSee({ x: 0, z: zb.def.viewDist * 0.7 }, true, 0));
+  test('視覺-夜晚更遠', zb.canSee({ x: 0, z: zb.def.viewDist * 1.3 }, false, 1));
+  // 視線遮擋:找一棟大樓,躲在後面
+  const box = T.colliders.boxes[0];
+  const cx = (box.minX + box.maxX) / 2, cz = (box.minZ + box.maxZ) / 2;
+  zb.pos.set(cx, 0, box.minZ - 5); zb.facing = 0; // 面向 +z(大樓方向)
+  test('視線被建築擋住', !zb.canSee({ x: cx, z: box.maxZ + 5 }, false, 0));
+
+  // 聽覺:噪音半徑內 → 調查
+  zb.state = 'wander'; zb.pos.set(0, 0, 0);
+  zb.hear(5, 0, 10);
+  test('聽覺-前來調查', zb.state === 'investigate' && zb.target.x === 5);
+
+  // 群體警戒
+  const zb2 = mgr.zombies[1];
+  zb2.state = 'wander'; zb2.pos.set(3, 0, 3);
+  mgr.alert(0, 0, 20);
+  test('群體警戒', zb2.state === 'chase');
+
+  // 攻擊:貼身 + 追擊狀態 → 造成傷害
+  let dmgTaken = 0;
+  zb.state = 'chase'; zb.lastKnown = { x: 0, z: 0 }; zb.lastSeenTime = 0; zb.attackCd = 0;
+  zb.pos.set(0.5, 0, 0);
+  zb.update(0.05, {
+    playerPos: new (Object.getPrototypeOf(zb.pos).constructor)(0, 0, 0),
+    crouching: false, playerAlive: true, night: 0, manager: mgr, now: 1,
+    onAttack: (d) => { dmgTaken = d; },
+  });
+  test('攻擊造成傷害', dmgTaken > 0, `dmg=${dmgTaken}`);
+
+  // 追丟 → 搜索
+  zb.lastSeenTime = -99; zb.state = 'chase';
+  zb.update(0.05, {
+    playerPos: new (Object.getPrototypeOf(zb.pos).constructor)(100, 0, 100),
+    crouching: true, playerAlive: true, night: 0, manager: mgr, now: 50,
+    onAttack: () => {},
+  });
+  test('追丟轉搜索', zb.state === 'search');
+
+  out.push('TEST_DONE');
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>
