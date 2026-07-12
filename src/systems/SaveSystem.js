@@ -24,6 +24,33 @@ export function clearSave() {
   try { localStorage.removeItem(KEY); } catch { /* 無痕模式等 */ }
 }
 
+// 已拿物資點:存 [type, x*10, z*10] 座標比對,不吃陣列索引——
+// 世界生成微調(如 M8 加入室內物資點)後,舊檔的其他點不會錯位
+const lootKey = (t, x, z) => `${t}:${Math.round(x * 10)}:${Math.round(z * 10)}`;
+
+export function encodeTakenLoot() {
+  return lootPoints.reduce((a, p) => (
+    p.taken && a.push([p.type, Math.round(p.x * 10), Math.round(p.z * 10)]), a
+  ), []);
+}
+
+export function applyTakenLoot(arr) {
+  if (!arr || !arr.length) return;
+  if (typeof arr[0] === 'number') {
+    // 舊格式(純索引):只還原生成順序穩定的野莓/樹枝,其餘寧可重生也別錯藏
+    for (const i of arr) {
+      const p = lootPoints[i];
+      if (p && (p.type === 'berry' || p.type === 'stick')) { p.taken = true; hideLoot(p); }
+    }
+    return;
+  }
+  const map = new Map(lootPoints.map((p) => [lootKey(p.type, p.x, p.z), p]));
+  for (const [t, x, z] of arr) {
+    const p = map.get(`${t}:${x}:${z}`);
+    if (p) { p.taken = true; hideLoot(p); }
+  }
+}
+
 export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies }) {
   const data = {
     v: 1,
@@ -38,7 +65,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
     combat: { equipped: combat.equipped, dur: [...combat.dur.entries()] },
     buildings: buildings.serialize(),
     enemies: enemies.serialize(),
-    loot: lootPoints.reduce((a, p, i) => (p.taken && a.push(i), a), []),
+    loot: encodeTakenLoot(),
     fires: campfires.map((f) => ({ x: f.x, z: f.z })),
   };
   try {
@@ -72,9 +99,6 @@ export function loadGame(data, { timeSystem, stats, inventory, player, combat, b
   buildings.loadFrom(data.buildings);
   enemies.loadFrom(data.enemies);
 
-  for (const i of data.loot) {
-    const p = lootPoints[i];
-    if (p) { p.taken = true; hideLoot(p); }
-  }
+  applyTakenLoot(data.loot);
   for (const f of data.fires) placeCampfire(scene, f.x, f.z);
 }

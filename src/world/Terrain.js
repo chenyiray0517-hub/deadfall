@@ -10,6 +10,17 @@ export const LAKE = { x: -160, z: 90, r: 42 };
 // boxes: {minX,maxX,minZ,maxZ} / circles: {x,z,r}
 export const colliders = { boxes: [], circles: [] };
 
+// 室內佔地(M8):建築改成鏤空殼後,牆 collider 不再覆蓋內部,
+// 生成迴避(樹/物資點/感染者出生)改查這張表(由 Interiors 填入)
+export const noSpawnRects = [];
+export function insideNoSpawn(x, z, margin = 0) {
+  for (const r of noSpawnRects) {
+    if (x > r.minX - margin && x < r.maxX + margin &&
+        z > r.minZ - margin && z < r.maxZ + margin) return true;
+  }
+  return false;
+}
+
 function smoothstep(x, a, b) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -190,6 +201,7 @@ function scatterNature(group) {
     if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 4) continue; // 不種在湖裡
     if (roadMask(x, z) > 0.15) continue;                           // 不種在路上
     if (insideAnyBox(x, z, 2)) continue;                           // 不種進建築
+    if (insideNoSpawn(x, z, 1)) continue;                          // 不種進室內
 
     const s = 0.7 + rng() * 0.9;
     q.setFromAxisAngle(up, rng() * Math.PI * 2);

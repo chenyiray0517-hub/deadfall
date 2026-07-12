@@ -23,7 +23,8 @@
 - [x] **M6 戰鬥**:近戰×3(木棒可製作/鐵管/消防斧,含耐久與體力消耗)+ 遠程×3(自製弓無聲箭可回收/手槍/獵槍距離衰減)+ 感染者受傷/硬直/死亡屍體可搜刮 + 槍聲引怪 + 感染值系統(咬傷判定/抗生素凍結/血清清零/滿 100 轉化死亡)
 - [x] **M7 建造**:B 鍵建造模式(木牆/木門/木刺牆/儲物箱/床,幽靈預覽綠紅染色、左鍵放置可連放)+ 感染者拆牆(建築有耐久)+ 尖刺傷敵 + 床(夜間睡覺快轉+重生點,死亡掉一半物品、箱內不掉)+ 屍潮夜襲(第 3 天起每 3~7 天,規模隨天數成長)+ 斧頭砍樹取木柴
 - [x] **M7.5 補坑**(2026-07-12):存讀檔(MVP 驗收項)+ 感染者死後重生(夜晚刷新×2)+ 屍體清理 + 感染犬嗅覺(帶傷追蹤)+ 修 Stats.removeEffect 缺失(抗生素會 crash)
-- [ ] M8 深度:NPC、任務、載具、技能樹、劇情
+- [x] **M8a 建築室內**(2026-07-12):大樓一樓 3 種(便利商店/辦公室/公寓大廳)+ 鄉村房 3 種(小農舍/農家/工具屋),同種內部佈局固定;可搜刮家具 6 類(貨架/冰箱/櫃台/櫥櫃/衣櫃/辦公桌)各自掉落表;感染者會繞到門口追進室內;存檔的已拿物資點改座標比對
+- [ ] M8 其餘深度:NPC、任務、載具、技能樹、劇情
 
 ## 架構備忘
 
@@ -71,6 +72,14 @@
   - 感染者死後重生:`EnemyManager.populationTarget`(= 初始 33)+ `respawnTimer`(白天 40s/夜晚 20s = 刷新×2),低於人口就 `respawnOne`(玩家 55m 外)。屍體搜刮完 20 秒、或放 5 分鐘消失(`corpseAt/lootedAt`,`die(now)` 要帶時間)。
   - 感染犬嗅覺:玩家 HP<60 = 帶傷(`world.wounded`),22m×(1+0.3×夜) 內不用視線直接 investigate 玩家位置,持續追味。
   - `_test_save.html`:M7.5 邏輯測試頁(29 條),會先備份再還原真實 localStorage 存檔。
+- M8a 室內架構:
+  - 室內全在 `world/Interiors.js`:`TOWER_TYPES`/`HOUSE_TYPES` 定義佈局(局部座標,+z = 門面),`buildInterior` 蓋殼(分段牆各掛 AABB collider,前牆留門口,門楣只有視覺——collider 是 2D 的裝不了)。旋轉只允許 90° 倍數,collider 永遠軸對齊。牆/地板/天花板/家具/雜物全烘成 InstancedMesh(`finishInteriors`)。
+  - 大樓 = 一樓室內殼 + 上層實心 Box(不掛 collider,靠牆段擋人);鄉村房 = 殼 + 錐頂;穀倉仍實心。天花板/地板不掛 collider(跳躍最高 0.94m 撞不到 2.15m 門楣)。
+  - 家具 collider 帶 `noLos`;可搜刮家具上有一份「雜物」instance,`furnitureLoot` 準備好完整 lootPoints 條目由 LootSpawner 併入(放陣列尾端,讓野莓/樹枝索引穩定),搜刮走原本的 hideLoot 縮 0,家具本體留著。掉落表在 LootSpawner 的 `FURN_TABLES`。
+  - 建築鏤空後 `insideAnyBox` 蓋不到內部:生成迴避(樹/樹枝/垃圾/箱子/感染者出生)改查 `Terrain.noSpawnRects`(`insideNoSpawn`,由 buildInterior 填)。
+  - 感染者導航:`Interiors.routeViaDoor(pos, goal)`——目標與自己一內一外時先走該房門口(`interiorRooms` 有每間房的 AABB+門口座標),不然玩家躲屋裡會變無敵。
+  - 存檔已拿物資點改存 `[type, x*10, z*10]` 座標比對(`encodeTakenLoot/applyTakenLoot`),世界生成微調不再讓舊檔錯位;舊格式(索引)只還原野莓/樹枝。
+  - `_test_interiors.html`:M8a 邏輯測試頁(21 條),headless --dump-dom 跑(記得 --virtual-time-budget=15000,CDN import 要時間)。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

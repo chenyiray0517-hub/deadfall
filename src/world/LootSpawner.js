@@ -1,9 +1,10 @@
 import * as THREE from '../lib/three.js';
 import {
   TERRAIN_SIZE, terrainHeight, biomeWeights, roadMask, isDeepWater,
-  insideAnyBox, mulberry32,
+  insideAnyBox, insideNoSpawn, mulberry32,
 } from './Terrain.js';
 import { structureSpots } from './Structures.js';
+import { furnitureLoot } from './Interiors.js';
 
 // 全部物資點:互動系統從這裡讀
 // {type, x, z, taken, mesh, index}(berry 另有 berriesMesh 藏果實用)
@@ -15,6 +16,13 @@ export const LOOT_LABELS = {
   stick: '撿樹枝',
   crate: '搜刮補給箱',
   trash: '翻找垃圾堆',
+  // 室內家具(M8)
+  shelf: '搜刮貨架',
+  fridge: '翻找冰箱',
+  counter: '搜刮櫃台',
+  cabinet: '翻找櫥櫃',
+  wardrobe: '翻找衣櫃',
+  desk: '翻找辦公桌',
 };
 
 // 拾取表
@@ -36,6 +44,35 @@ const TRASH_TABLE = [
   { id: 'cloth', w: 40 }, { id: 'scrap', w: 40 }, { id: 'canned', w: 20 },
   { id: 'bat', w: 12 }, { id: 'ammo9', w: 8 },
 ];
+// 室內家具掉落表(M8):商店吃喝多、辦公桌雜物彈藥多、衣櫃布料多
+const FURN_TABLES = {
+  shelf: [
+    { id: 'canned', w: 30 }, { id: 'bottled', w: 22 }, { id: 'cloth', w: 12 },
+    { id: 'scrap', w: 10 }, { id: 'empty', w: 8 }, { id: 'ammo9', w: 6 },
+    { id: 'bat', w: 4 }, { id: 'antibiotic', w: 3 },
+  ],
+  fridge: [
+    { id: 'canned', w: 30 }, { id: 'bottled', w: 35 }, { id: 'rawmeat', w: 18 }, { id: 'empty', w: 10 },
+  ],
+  counter: [
+    { id: 'canned', w: 12 }, { id: 'bottled', w: 12 }, { id: 'scrap', w: 18 },
+    { id: 'ammo9', w: 12 }, { id: 'cloth', w: 10 }, { id: 'shell', w: 5 },
+    { id: 'antibiotic', w: 4 }, { id: 'pistol', w: 3 },
+  ],
+  cabinet: [
+    { id: 'canned', w: 20 }, { id: 'bottled', w: 14 }, { id: 'cloth', w: 18 },
+    { id: 'scrap', w: 14 }, { id: 'wood', w: 10 }, { id: 'bandage', w: 8 }, { id: 'antibiotic', w: 4 },
+  ],
+  wardrobe: [
+    { id: 'cloth', w: 45 }, { id: 'bandage', w: 10 }, { id: 'scrap', w: 8 },
+    { id: 'empty', w: 6 }, { id: 'ammo9', w: 5 }, { id: 'pistol', w: 2 },
+  ],
+  desk: [
+    { id: 'scrap', w: 22 }, { id: 'ammo9', w: 12 }, { id: 'cloth', w: 10 },
+    { id: 'empty', w: 10 }, { id: 'bandage', w: 6 }, { id: 'antibiotic', w: 6 },
+    { id: 'pistol', w: 2 }, { id: 'serum', w: 1 },
+  ],
+};
 
 // 彈藥一次撿一小把
 const rollCount = (id) =>
@@ -58,6 +95,12 @@ export function rollLoot(type) {
     const n = 1 + (Math.random() < 0.5 ? 1 : 0);
     for (let i = 0; i < n; i++) {
       const id = weighted(TRASH_TABLE);
+      push(id, rollCount(id));
+    }
+  } else if (FURN_TABLES[type]) {
+    const n = 1 + (Math.random() < 0.6 ? 1 : 0);
+    for (let i = 0; i < n; i++) {
+      const id = weighted(FURN_TABLES[type]);
       push(id, rollCount(id));
     }
   }
@@ -136,7 +179,7 @@ export function spawnLoot() {
     const z = (rng() * 2 - 1) * half;
     const w = biomeWeights(x, z);
     if (w.urban > 0.2 || isDeepWater(x, z)) continue;
-    if (roadMask(x, z) > 0.3 || insideAnyBox(x, z, 0.5)) continue;
+    if (roadMask(x, z) > 0.3 || insideAnyBox(x, z, 0.5) || insideNoSpawn(x, z, 0.6)) continue;
     q.setFromEuler(e.set(Math.PI / 2, 0, rng() * Math.PI * 2, 'ZYX'));
     m.compose(new THREE.Vector3(x, terrainHeight(x, z) + 0.08, z), q, one);
     sticks.setMatrixAt(sc, m);
@@ -160,7 +203,7 @@ export function spawnLoot() {
       const r = 4 + rng() * 4;
       const x = spot.x + Math.cos(a) * r;
       const z = spot.z + Math.sin(a) * r;
-      if (insideAnyBox(x, z, 0.8) || roadMask(x, z) > 0.3) continue;
+      if (insideAnyBox(x, z, 0.8) || insideNoSpawn(x, z, 0.6) || roadMask(x, z) > 0.3) continue;
       q.setFromEuler(e.set(0, rng() * Math.PI, 0));
       m.compose(new THREE.Vector3(x, terrainHeight(x, z) + 0.45, z), q, one);
       crates.setMatrixAt(cc, m);
@@ -183,7 +226,7 @@ export function spawnLoot() {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     if (biomeWeights(x, z).urban < 0.8) continue;
-    if (insideAnyBox(x, z, 0.8)) continue;
+    if (insideAnyBox(x, z, 0.8) || insideNoSpawn(x, z, 0.6)) continue;
     q.setFromEuler(e.set(0, rng() * Math.PI, 0));
     m.compose(new THREE.Vector3(x, terrainHeight(x, z) + 0.3, z), q, one);
     trash.setMatrixAt(tc, m);
@@ -192,6 +235,10 @@ export function spawnLoot() {
   }
   trash.count = tc;
   group.add(trash);
+
+  // ── 室內家具物資點(M8):條目由 Interiors 準備好,直接併入 ──
+  // 放在最後,讓野莓/樹枝維持在陣列前段(舊存檔的索引相容靠這個順序)
+  lootPoints.push(...furnitureLoot);
 
   return group;
 }

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+// M8-室內 邏輯測試:6 種室內生成 + 門口可通 + 家具物資點 + 繞門導航 + 存檔座標比對
+// headless:chrome --headless --dump-dom http://localhost:8000/_test_interiors.html
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const THREE = await import('./src/lib/three.js');
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const I = await import('./src/world/Interiors.js');
+  const L = await import('./src/world/LootSpawner.js');
+  const SV = await import('./src/systems/SaveSystem.js');
+  const { ITEMS } = await import('./src/player/Items.js');
+
+  // 依 main.js 順序生成世界
+  S.createStructures();
+  T.createTerrain();
+  L.spawnLoot();
+
+  // ── 生成規模 ──
+  const rooms = I.interiorRooms;
+  const byType = {};
+  for (const r of rooms) byType[r.typeId] = (byType[r.typeId] || 0) + 1;
+  test('室內房間 ≥ 13(10 鄉村房 + 大樓)', rooms.length >= 13, `n=${rooms.length}`);
+  const allTypes = ['store', 'office', 'apartment', 'cottage', 'farmhouse', 'toolshed'];
+  test('6 種室內都有出現', allTypes.every((t) => byType[t] > 0), JSON.stringify(byType));
+  test('noSpawnRects 與房間數一致', T.noSpawnRects.length === rooms.length);
+
+  // ── 每間房:中心是空的(鏤空殼)、門口可走可看、後牆擋視線 ──
+  const center = (r) => ({ x: (r.minX + r.maxX) / 2, z: (r.minZ + r.maxZ) / 2 });
+  let hollow = 0, doorPass = 0, doorLos = 0, backBlocked = 0;
+  for (const r of rooms) {
+    const c = center(r);
+    const nx = (r.doorX - c.x), nz = (r.doorZ - c.z);
+    const nd = Math.hypot(nx, nz);
+    const inP = { x: r.doorX - (nx / nd) * 1.3, z: r.doorZ - (nz / nd) * 1.3 };
+    const outP = { x: r.doorX + (nx / nd) * 1.3, z: r.doorZ + (nz / nd) * 1.3 };
+    const backP = { x: c.x - (nx / nd) * (nd + 2), z: c.z - (nz / nd) * (nd + 2) };
+    // 中心不能被「牆」蓋住(家具 noLos collider 不算,像小農舍中央本來就有桌子)
+    const inWall = T.colliders.boxes.some((b) => !b.noLos &&
+      c.x > b.minX && c.x < b.maxX && c.z > b.minZ && c.z < b.maxZ);
+    if (!inWall) hollow++;
+    if (!T.insideAnyBox(inP.x, inP.z, 0.3) && !T.insideAnyBox(outP.x, outP.z, 0.3)) doorPass++;
+    if (!T.losBlocked(outP.x, outP.z, inP.x, inP.z)) doorLos++;
+    if (T.losBlocked(c.x, c.z, backP.x, backP.z)) backBlocked++;
+  }
+  test('所有室內中心是空的', hollow === rooms.length, `${hollow}/${rooms.length}`);
+  test('所有門口內外都站得住', doorPass === rooms.length, `${doorPass}/${rooms.length}`);
+  test('所有門口看得穿(LOS)', doorLos === rooms.length, `${doorLos}/${rooms.length}`);
+  test('所有後牆擋視線', backBlocked === rooms.length, `${backBlocked}/${rooms.length}`);
+
+  // ── 家具物資點 ──
+  const furn = I.furnitureLoot;
+  test('家具物資點 ≥ 40', furn.length >= 40, `n=${furn.length}`);
+  const inRoom = furn.filter((p) => rooms.some((r) =>
+    p.x > r.minX && p.x < r.maxX && p.z > r.minZ && p.z < r.maxZ)).length;
+  test('物資點都在室內', inRoom === furn.length, `${inRoom}/${furn.length}`);
+  test('物資點併入 lootPoints 且有 goods mesh',
+    furn.every((p) => L.lootPoints.includes(p) && p.mesh && p.mesh.isInstancedMesh));
+  const furnTypes = ['shelf', 'fridge', 'counter', 'cabinet', 'wardrobe', 'desk'];
+  test('六種搜刮類型都有標籤', furnTypes.every((t) => L.LOOT_LABELS[t]));
+  let rollsOk = true;
+  for (const t of furnTypes) {
+    for (let i = 0; i < 20; i++) {
+      const got = L.rollLoot(t);
+      const ids = Object.keys(got);
+      if (!ids.length || ids.some((id) => !ITEMS[id])) rollsOk = false;
+    }
+  }
+  test('六種掉落表都出貨且物品 id 合法', rollsOk);
+  const p0 = furn[0];
+  const got0 = L.takeLoot(p0);
+  test('takeLoot 家具點:標記已拿且有掉落', p0.taken && Object.keys(got0).length > 0);
+
+  // ── 樹不長進室內 ──
+  const treesInside = T.colliders.circles.filter((t) => rooms.some((r) =>
+    t.x > r.minX && t.x < r.maxX && t.z > r.minZ && t.z < r.maxZ)).length;
+  test('沒有樹長進室內', treesInside === 0, `n=${treesInside}`);
+  test('insideNoSpawn 覆蓋室內中心', rooms.every((r) => {
+    const c = center(r);
+    return T.insideNoSpawn(c.x, c.z, 0);
+  }));
+
+  // ── 感染者繞門導航 ──
+  const r0 = rooms[0];
+  const c0 = center(r0);
+  const far = { x: r0.doorX + (r0.doorX - c0.x) * 6, z: r0.doorZ + (r0.doorZ - c0.z) * 6 };
+  const via = I.routeViaDoor(far, c0);
+  test('目標在室內、自己在遠處 → 先走門口',
+    Math.hypot(via.x - r0.doorX, via.z - r0.doorZ) < 0.01);
+  const nearDoor = { x: r0.doorX + (r0.doorX - c0.x) * 0.1, z: r0.doorZ + (r0.doorZ - c0.z) * 0.1 };
+  const via2 = I.routeViaDoor(nearDoor, c0);
+  test('已在門口 → 直接進屋', via2.x === c0.x && via2.z === c0.z);
+  const via3 = I.routeViaDoor({ x: far.x + 3, z: far.z }, far);
+  test('兩點都在室外 → 不繞路', via3.x === far.x && via3.z === far.z);
+
+  // ── 存檔:座標比對 + 舊格式相容 ──
+  const pA = furn[1];
+  pA.taken = true;
+  const enc = SV.encodeTakenLoot();
+  test('encodeTakenLoot 是 [type,x,z] 條目', enc.every((e) => Array.isArray(e) && e.length === 3));
+  pA.taken = false;
+  p0.taken = false;
+  SV.applyTakenLoot(enc);
+  test('applyTakenLoot 座標比對還原', pA.taken && p0.taken);
+  // 舊格式(索引):只認野莓/樹枝
+  const berryIdx = L.lootPoints.findIndex((p) => p.type === 'berry' && !p.taken);
+  const crateIdx = L.lootPoints.findIndex((p) => p.type === 'crate' && !p.taken);
+  SV.applyTakenLoot([berryIdx, crateIdx]);
+  test('舊格式:野莓還原、補給箱略過',
+    L.lootPoints[berryIdx].taken && !L.lootPoints[crateIdx].taken);
+
+  // 截圖驗證用座標
+  const store = rooms.find((r) => r.typeId === 'store');
+  const cottage = rooms.find((r) => r.typeId === 'cottage');
+  const fmt = (r) => `${center(r).x.toFixed(1)},${center(r).z.toFixed(1)} door=${r.doorX.toFixed(1)},${r.doorZ.toFixed(1)}`;
+  out.push(`INFO store @ ${fmt(store)}`);
+  out.push(`INFO cottage @ ${fmt(cottage)}`);
+} catch (e) {
+  out.push('ERROR ' + (e.stack || e));
+}
+document.getElementById('out').textContent =
+  out.join('\n') + `\n== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`;
+</script></body></html>

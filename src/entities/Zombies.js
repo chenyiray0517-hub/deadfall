@@ -1,8 +1,9 @@
 import * as THREE from '../lib/three.js';
 import {
   TERRAIN_SIZE, terrainHeight, biomeWeights, isDeepWater,
-  resolveColliders, losBlocked, insideAnyBox, SPAWN, mulberry32,
+  resolveColliders, losBlocked, insideAnyBox, insideNoSpawn, SPAWN, mulberry32,
 } from '../world/Terrain.js';
+import { routeViaDoor } from '../world/Interiors.js';
 
 // 感染者類型(規格 5.1/5.2 起步集:遊蕩者、奔跑者、感染犬)
 const TYPES = {
@@ -241,10 +242,11 @@ class Zombie {
       }
     }
 
-    // 移動
+    // 移動;目標隔著室內牆(一內一外)時先繞到那棟建築的門口(M8)
     if (goal && speed > 0) {
-      const dx = goal.x - this.pos.x;
-      const dz = goal.z - this.pos.z;
+      const via = routeViaDoor(this.pos, goal);
+      const dx = via.x - this.pos.x;
+      const dz = via.z - this.pos.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.3) {
         const nx = this.pos.x + (dx / d) * speed * dt;
@@ -340,7 +342,7 @@ export class EnemyManager {
       const x = THREE.MathUtils.clamp(playerPos.x + Math.cos(a) * r, -half, half);
       const z = THREE.MathUtils.clamp(playerPos.z + Math.sin(a) * r, -half, half);
       if (Math.hypot(x - playerPos.x, z - playerPos.z) < 55) continue; // clamp 可能被拉近
-      if (isDeepWater(x, z) || insideAnyBox(x, z, 1)) continue;
+      if (isDeepWater(x, z) || insideAnyBox(x, z, 1) || insideNoSpawn(x, z, 1)) continue;
       const roll = Math.random();
       const type = roll < 0.65 ? 'walker' : roll < 0.9 ? 'runner' : 'dog';
       const zb = new Zombie(type, x, z);
@@ -405,7 +407,7 @@ export class EnemyManager {
       const r = 55 + Math.random() * 15;
       const x = THREE.MathUtils.clamp(playerPos.x + Math.cos(a) * r, -half, half);
       const z = THREE.MathUtils.clamp(playerPos.z + Math.sin(a) * r, -half, half);
-      if (isDeepWater(x, z) || insideAnyBox(x, z, 1)) continue;
+      if (isDeepWater(x, z) || insideAnyBox(x, z, 1) || insideNoSpawn(x, z, 1)) continue;
       const roll = Math.random();
       const type = roll < 0.6 ? 'walker' : roll < 0.9 ? 'runner' : 'dog';
       const zb = new Zombie(type, x, z);
@@ -439,7 +441,7 @@ export class EnemyManager {
       const z = (rng() * 2 - 1) * half;
       if (!biomeOk(biomeWeights(x, z))) continue;
       if (Math.hypot(x - SPAWN.x, z - SPAWN.z) < 45) continue; // 出生點附近淨空
-      if (isDeepWater(x, z) || insideAnyBox(x, z, 1)) continue;
+      if (isDeepWater(x, z) || insideAnyBox(x, z, 1) || insideNoSpawn(x, z, 1)) continue;
       const zb = new Zombie(type, x, z);
       this.zombies.push(zb);
       this.scene.add(zb.mesh);

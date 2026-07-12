@@ -3,12 +3,11 @@ import {
   TERRAIN_SIZE, terrainHeight, biomeWeights, roadMask, mainRoadCenter,
   colliders, insideAnyBox, mulberry32,
 } from './Terrain.js';
+import { HOUSE_TYPES, TOWER_TYPES, buildInterior, finishInteriors } from './Interiors.js';
 
 // 建築位置登記,供 LootSpawner 在附近放物資點
 export const structureSpots = []; // {x, z, kind: 'house'|'barn'|'building'|'car'}
 
-const matWall = new THREE.MeshLambertMaterial({ color: '#a89878' });
-const matRoof = new THREE.MeshLambertMaterial({ color: '#5c4a38' });
 const matBarn = new THREE.MeshLambertMaterial({ color: '#7a3b30' });
 const matBarnRoof = new THREE.MeshLambertMaterial({ color: '#4a3a30' });
 
@@ -54,15 +53,22 @@ export function createStructures() {
 
     const isBarn = barns < 4 && rng() < 0.35;
     if (!isBarn && houses >= 10) continue;
-    const bw = isBarn ? 8 : 5.5 + rng() * 1.5;
-    const bd = isBarn ? 6 : 4.5 + rng() * 1.5;
-    const bh = isBarn ? 4.5 : 3.2;
-    const b = makeHouse(bw, bd, bh, isBarn ? matBarn : matWall, isBarn ? matBarnRoof : matRoof);
-    b.position.set(x, terrainHeight(x, z), z);
-    group.add(b);
-    addBoxCollider(x, z, bw, bd);
-    structureSpots.push({ x, z, kind: isBarn ? 'barn' : 'house' });
-    if (isBarn) barns++; else houses++;
+    if (isBarn) {
+      // 穀倉維持實心(室內之後有需要再開)
+      const b = makeHouse(8, 6, 4.5, matBarn, matBarnRoof);
+      b.position.set(x, terrainHeight(x, z), z);
+      group.add(b);
+      addBoxCollider(x, z, 8, 6);
+      structureSpots.push({ x, z, kind: 'barn' });
+      barns++;
+    } else {
+      // 鄉村房 3 種,有室內可搜刮(M8);門面朝向公路那一側
+      const type = HOUSE_TYPES[Math.floor(rng() * HOUSE_TYPES.length)];
+      const rot = z > mainRoadCenter(x) ? 2 : 0;
+      buildInterior(group, type, x, z, rot);
+      structureSpots.push({ x, z, kind: 'house' });
+      houses++;
+    }
   }
 
   // ── 城市:棋盤街區裡的大樓 ──
@@ -86,17 +92,20 @@ export function createStructures() {
         const oz = (rng() - 0.5) * 16;
         const x = cx + ox, z = cz + oz;
         if (insideAnyBox(x, z, 4)) continue;
-        const bw2 = 10 + rng() * 8;
-        const bd2 = 10 + rng() * 8;
+        // 大樓 3 種,一樓有室內可搜刮(M8);上層維持實心樓體
+        const type = TOWER_TYPES[Math.floor(rng() * TOWER_TYPES.length)];
         const bh2 = 8 + rng() * 20;
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(bw2, bh2, bd2),
+        const rot = Math.floor(rng() * 4);
+        const yb = buildInterior(group, type, x, z, rot);
+        const uw = rot % 2 ? type.d : type.w;
+        const ud = rot % 2 ? type.w : type.d;
+        const upper = new THREE.Mesh(
+          new THREE.BoxGeometry(uw, bh2 - type.h, ud),
           buildingMats[Math.floor(rng() * buildingMats.length)]
         );
-        mesh.position.set(x, bh2 / 2, z);
-        mesh.castShadow = mesh.receiveShadow = true;
-        group.add(mesh);
-        addBoxCollider(x, z, bw2, bd2);
+        upper.position.set(x, yb + type.h + (bh2 - type.h) / 2, z);
+        upper.castShadow = upper.receiveShadow = true;
+        group.add(upper);
         structureSpots.push({ x, z, kind: 'building' });
       }
     }
@@ -123,5 +132,6 @@ export function createStructures() {
     structureSpots.push({ x, z, kind: 'car' });
   }
 
+  finishInteriors(group); // 室內牆/家具烘成 InstancedMesh
   return group;
 }
