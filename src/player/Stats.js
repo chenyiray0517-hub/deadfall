@@ -17,13 +17,15 @@ export class Stats {
     this.ageHours = 0;        // 累計遊戲時數(狀態效果計時用)
     this.effects = [];        // {id, label, until(遊戲時)}
     this.infection = 0;       // 感染值 0~100,滿了轉化死亡(規格 3.5)
+    this.skills = null;       // 技能系統(main 設定;Items/Player 經由 stats 取用)
 
     // 由 Player 每幀回報目前行為
     this.activity = { running: false, moving: false };
   }
 
   get staminaMax() {
-    return this.hunger <= 0 ? 50 : 100; // 飢餓歸零:體力上限減半
+    const base = 100 + (this.skills ? this.skills.staminaBonus() : 0); // 💪 強健體魄
+    return this.hunger <= 0 ? base / 2 : base; // 飢餓歸零:體力上限減半
   }
 
   // HP < 30% 移動速度 -15%
@@ -42,10 +44,11 @@ export class Stats {
     if (this.hp <= 0) this.die(cause);
   }
 
-  // 感染者攻擊:傷害 + 咬傷感染判定(規格 3.5)
+  // 感染者攻擊:傷害 + 咬傷感染判定(規格 3.5);🧬 強韌血統降感染機率
   applyBite(amount, cause) {
     this.damage(amount, cause);
-    if (this.alive && Math.random() < 0.3) {
+    const biteChance = 0.3 * (this.skills ? this.skills.biteMult() : 1);
+    if (this.alive && Math.random() < biteChance) {
       this.infection = Math.min(100, this.infection + 8 + Math.random() * 6);
     }
   }

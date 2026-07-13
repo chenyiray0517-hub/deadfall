@@ -35,7 +35,11 @@ export const ITEMS = {
   },
   bandage: {
     name: '繃帶', icon: '🩹', consumable: true,
-    use(s) { s.hp = clamp(s.hp + 15); return '+15 HP'; },
+    use(s) {
+      const heal = 15 + (s.skills ? s.skills.bandageBonus() : 0); // 🩹 急救專精
+      s.hp = clamp(s.hp + heal);
+      return `+${heal} HP`;
+    },
   },
   rawmeat: {
     name: '生肉', icon: '🥩', consumable: true,

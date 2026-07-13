@@ -1,10 +1,14 @@
 import * as THREE from '../lib/three.js';
 
-// 地形 500x500,高度/生態區/道路全部是解析函式,任何系統都能直接取樣
-export const TERRAIN_SIZE = 500;
+// 地形 1000x1000,高度/生態區/道路全部是解析函式,任何系統都能直接取樣
+// WORLD_SCALE = 相對原始 500 地圖的線性倍率;生態區/湖/出生點/密度都用它換算,
+// 改 TERRAIN_SIZE 整張地圖等比縮放(面積 = 倍率平方)
+export const TERRAIN_SIZE = 1000;
+export const WORLD_SCALE = TERRAIN_SIZE / 500;
+export const AREA_SCALE = WORLD_SCALE * WORLD_SCALE;
 export const WATER_LEVEL = -1.0;
-export const SPAWN = { x: -140, z: -10 }; // 出生在荒野、靠近鄉村邊界(規格:荒野是起步區)
-export const LAKE = { x: -160, z: 90, r: 42 };
+export const SPAWN = { x: -140 * WORLD_SCALE, z: -10 * WORLD_SCALE }; // 出生在荒野、靠近鄉村邊界(規格:荒野是起步區)
+export const LAKE = { x: -160 * WORLD_SCALE, z: 90 * WORLD_SCALE, r: 42 };
 
 // 碰撞體註冊表:建立世界時填入,Player 每幀解算
 // boxes: {minX,maxX,minZ,maxZ} / circles: {x,z,r}
@@ -28,7 +32,10 @@ function smoothstep(x, a, b) {
 
 // ── 生態區:荒野(西) → 鄉村(中) → 城市(東),邊界帶狀扭動(規格 4.1 風險/報酬梯度)──
 export function biomeWeights(x, z) {
-  const u = x + 35 * Math.sin(z * 0.011 + 2.3) + 18 * Math.sin(z * 0.027 + 0.7);
+  // 座標除以倍率 = 整張生態區地圖等比放大,三區比例不變
+  const u = x / WORLD_SCALE +
+    35 * Math.sin(z * 0.011 / WORLD_SCALE + 2.3) +
+    18 * Math.sin(z * 0.027 / WORLD_SCALE + 0.7);
   const a = smoothstep(u, -75, -40);  // 荒野→鄉村
   const b = smoothstep(u, 90, 125);   // 鄉村→城市
   return { wild: 1 - a, rural: a * (1 - b), urban: a * b };
@@ -45,7 +52,7 @@ export function regionName(x, z) {
 // 主要公路:從鄉村蜿蜒進城市
 export function mainRoadCenter(x) { return 6 * Math.sin(x * 0.02); }
 function mainRoadMask(x, z) {
-  if (x < -80) return 0;
+  if (x < -80 * WORLD_SCALE) return 0;
   const d = Math.abs(z - mainRoadCenter(x));
   return 1 - smoothstep(d, 3.2, 5.5);
 }
@@ -90,7 +97,7 @@ export function isDeepWater(x, z) {
 export function createTerrain() {
   const group = new THREE.Group();
 
-  const segments = 200;
+  const segments = 200 * WORLD_SCALE; // 網格密度跟著地圖放大,起伏解析度不變
   const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, segments, segments);
   geo.rotateX(-Math.PI / 2);
 
@@ -175,7 +182,7 @@ function scatterNature(group) {
   const rng = mulberry32(20260711);
   const half = TERRAIN_SIZE / 2 - 10;
 
-  const TREE_MAX = 420;
+  const TREE_MAX = 420 * AREA_SCALE;
   const trunkGeo = new THREE.CylinderGeometry(0.22, 0.35, 3.2, 6);
   trunkGeo.translate(0, 1.6, 0);
   const trunkMat = new THREE.MeshLambertMaterial({ color: '#4a3826' });
@@ -190,7 +197,7 @@ function scatterNature(group) {
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   let count = 0;
-  for (let tries = 0; tries < 4000 && count < TREE_MAX; tries++) {
+  for (let tries = 0; tries < 4000 * AREA_SCALE && count < TREE_MAX; tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     const w = biomeWeights(x, z);
@@ -219,13 +226,13 @@ function scatterNature(group) {
   group.add(trunks, crowns);
 
   // 石頭(荒野)
-  const ROCK_COUNT = 110;
+  const ROCK_COUNT = 110 * AREA_SCALE;
   const rockGeo = new THREE.DodecahedronGeometry(0.6, 0);
   const rockMat = new THREE.MeshLambertMaterial({ color: '#6e6a60' });
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, ROCK_COUNT);
   rocks.castShadow = true;
   let rc = 0;
-  for (let tries = 0; tries < 1500 && rc < ROCK_COUNT; tries++) {
+  for (let tries = 0; tries < 1500 * AREA_SCALE && rc < ROCK_COUNT; tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     const w = biomeWeights(x, z);

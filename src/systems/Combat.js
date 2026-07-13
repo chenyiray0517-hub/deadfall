@@ -5,7 +5,7 @@ import { losBlocked, colliders } from '../world/Terrain.js';
 // 玩家戰鬥(M6):近戰揮擊/遠程射擊、近戰耐久、槍聲噪音、第一人稱武器模型
 // 命中判定不用 raycast 物件求交:近戰是面前扇形取最近,遠程是視線射線對感染者圓柱心的最近距離
 export class Combat {
-  constructor({ camera, player, stats, inventory, enemies, toast, isNight, onHit }) {
+  constructor({ camera, player, stats, inventory, enemies, toast, isNight, onHit, skills }) {
     this.player = player;
     this.stats = stats;
     this.inventory = inventory;
@@ -13,6 +13,7 @@ export class Combat {
     this.toast = toast;
     this.isNight = isNight;
     this.onHit = onHit || (() => {});
+    this.skills = skills || null; // 技能加成(近戰/遠程傷害、箭回收率)
 
     this.equipped = null;   // 目前手持武器 id
     this.cd = 0;            // 攻擊冷卻
@@ -95,7 +96,8 @@ export class Combat {
       if (this.equipped === 'axe' && this.chopTree(p, fx, fz)) this.wearMelee(def);
       return;
     }
-    const killed = best.takeDamage(def.dmg, p, this.enemies, now);
+    const dmg = Math.round(def.dmg * (this.skills?.meleeMult() ?? 1)); // 🪓 近戰專精
+    const killed = best.takeDamage(dmg, p, this.enemies, now);
     this.onHit(killed, best);
     this.wearMelee(def);
   }
@@ -174,8 +176,9 @@ export class Combat {
     if (def.falloff && bestT > 6) {
       dmg = Math.max(def.dmg * 0.25, def.dmg * (1 - (bestT - 6) / 20)); // 霰彈距離衰減
     }
-    if (def.ammo === 'arrow' && Math.random() < 0.6) {
-      best.stuckArrows += 1; // 箭插在身上,搜屍可回收(規格 6.5)
+    dmg = Math.round(dmg * (this.skills?.rangedMult() ?? 1)); // 🎯 神射手
+    if (def.ammo === 'arrow' && Math.random() < (this.skills?.arrowRecover() ?? 0.6)) {
+      best.stuckArrows += 1; // 箭插在身上,搜屍可回收(規格 6.5;神射手 Lv2 提高到 90%)
     }
     const killed = best.takeDamage(dmg, p, this.enemies, now);
     this.onHit(killed, best);

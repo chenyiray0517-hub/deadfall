@@ -23,11 +23,16 @@
 - [x] **M6 戰鬥**:近戰×3(木棒可製作/鐵管/消防斧,含耐久與體力消耗)+ 遠程×3(自製弓無聲箭可回收/手槍/獵槍距離衰減)+ 感染者受傷/硬直/死亡屍體可搜刮 + 槍聲引怪 + 感染值系統(咬傷判定/抗生素凍結/血清清零/滿 100 轉化死亡)
 - [x] **M7 建造**:B 鍵建造模式(木牆/木門/木刺牆/儲物箱/床,幽靈預覽綠紅染色、左鍵放置可連放)+ 感染者拆牆(建築有耐久)+ 尖刺傷敵 + 床(夜間睡覺快轉+重生點,死亡掉一半物品、箱內不掉)+ 屍潮夜襲(第 3 天起每 3~7 天,規模隨天數成長)+ 斧頭砍樹取木柴
 - [x] **M7.5 補坑**(2026-07-12):存讀檔(MVP 驗收項)+ 感染者死後重生(夜晚刷新×2)+ 屍體清理 + 感染犬嗅覺(帶傷追蹤)+ 修 Stats.removeEffect 缺失(抗生素會 crash)
+- [x] **地圖擴大 4 倍**(2026-07-13):500×500 → 1000×1000(`WORLD_SCALE`/`AREA_SCALE` 等比換算),樹/石/建築/物資/感染者數量 ×4;遠處感染者降頻更新;建築門前淨空區
 - [x] **M8a 建築室內**(2026-07-12):大樓一樓 3 種(便利商店/辦公室/公寓大廳)+ 鄉村房 3 種(小農舍/農家/工具屋),同種內部佈局固定;可搜刮家具 6 類(貨架/冰箱/櫃台/櫥櫃/衣櫃/辦公桌)各自掉落表;感染者會繞到門口追進室內;存檔的已拿物資點改座標比對
-- [ ] M8 其餘深度:NPC、任務、載具、技能樹、劇情
+- [x] **M8b 技能樹**(2026-07-13):XP 升級給技能點(擊殺/搜刮/採集/製作/建造/存活天數),K 鍵開三分支九技能(生存/戰鬥/製作,規格 7.7 簡化版;社交分支等 NPC),含存讀檔;順手補上「烤肉」配方(營火烹飪)
+- [ ] M8 其餘深度:NPC、任務、載具、劇情(技能樹的社交分支、熟練度軌也還沒做)
 
 ## 架構備忘
 
+- 地圖尺寸(2026-07-13 擴大 4 倍):`TERRAIN_SIZE = 1000`,`WORLD_SCALE = TERRAIN_SIZE/500`(線性倍率)、`AREA_SCALE = WORLD_SCALE²`(面積倍率)。生態區/湖/出生點/公路起點吃 WORLD_SCALE,各種數量(樹/石/建築/物資/感染者)吃 AREA_SCALE——之後再改地圖大小只動 TERRAIN_SIZE 一個常數。biomeWeights 把座標除以 WORLD_SCALE = 整張生態區圖等比放大,三區比例不變。
+  - 效能:感染者玩家 130m 外降頻更新(每 0.35s 走一步,`zb.lodDt` 累積;霧最遠 380 幾乎看不到)。碰撞箱 ~1500 個、感染者 132 隻,近處全速的只剩身邊幾隻。
+  - 建築 placement 有「門前淨空區」(`doorZones`):每放一棟有室內的建築就保留門外 2.2m 一塊,之後的建築/穀倉/車輛不能壓進來;大樓間距按實際樓寬 + 2.5m 算(舊的中心點 margin 4 在 4 倍密度下會擋住鄰棟門口)。
 - `src/world/Terrain.js`:地形高度是**解析函式** `terrainHeight(x,z)`,任何實體貼地直接呼叫它取樣,不用 raycast。地景擺設用 InstancedMesh + 固定 seed 偽隨機(每次載入一致)。
 - `src/core/TimeSystem.js`:`timeOfDay`(0~24)為全遊戲時間源,之後 M2 的數值消耗、M5 的夜晚敵人 buff(速度+30%/偵測+50%)都從這裡讀。太陽陰影相機跟著玩家移動。
 - `src/player/Player.js`:玩家位置存 `position`(腳底),相機 = position + eyeHeight。按鍵用 `e.code`。
@@ -80,6 +85,13 @@
   - 感染者導航:`Interiors.routeViaDoor(pos, goal)`——目標與自己一內一外時先走該房門口(`interiorRooms` 有每間房的 AABB+門口座標),不然玩家躲屋裡會變無敵。
   - 存檔已拿物資點改存 `[type, x*10, z*10]` 座標比對(`encodeTakenLoot/applyTakenLoot`),世界生成微調不再讓舊檔錯位;舊格式(索引)只還原野莓/樹枝。
   - `_test_interiors.html`:M8a 邏輯測試頁(21 條),headless --dump-dom 跑(記得 --virtual-time-budget=15000,CDN import 要時間)。
+- M8b 技能樹架構:
+  - `src/player/Skills.js`:SKILL_DEFS(9 技能,id/branch/max/desc)+ Skills 類(xp/level/points/lv,addXp 回傳升級數)+ XP 常數(loot 3/gather 2/corpse 2/craft 4/build 5/day 25;擊殺 XP 在 Zombies TYPES.xp)。**純邏輯不 import three**,可 node 測。
+  - 加成的接法:`stats.skills = skills`(Items/Player/Stats 內部經由 stats 讀)、`buildings.skills`、Combat 建構參數 `skills`;各處都用 `?.` + 預設值,沒接 skills 也能跑(測試頁不用改)。
+  - 效果落點:staminaBonus→Stats.staminaMax(HUD 體力條改除以 staminaMax)、noiseMult→Player.noiseRadius、bonusLootChance→Interaction.forageBonus、melee/rangedMult+arrowRecover→Combat、biteMult→Stats.applyBite、costMult→Crafting.costOf(製作與建造共用,-20% 向下取整至少 1)、buildHpMult→Buildings.tryPlace(只影響新建)、bandageBonus→Items bandage。
+  - UI:K 鍵開技能面板(共用 #panel,panelMode 'skills'),數字鍵加點;左上 #xp 顯示等級/XP,有未花點數會亮提示。存檔加 `skills` 欄位(舊檔沒有 = 從 Lv1 開始,相容)。
+  - 測試參數:`?xp=200` 給初始經驗、`?panel=skills` 直接開面板(截圖驗證 UI 用)。
+  - `_test_skills.html`:技能邏輯測試頁(36 條),headless --dump-dom 跑。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

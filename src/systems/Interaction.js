@@ -53,6 +53,15 @@ export function findInteraction(player, inv, enemies, buildings) {
   return null;
 }
 
+// 🧺 採集達人:依機率從這次拿到的東西裡隨機多拿 1 件
+function forageBonus(got, stats) {
+  const chance = stats?.skills?.bonusLootChance() ?? 0;
+  const ids = Object.keys(got);
+  if (!ids.length || Math.random() >= chance) return;
+  const id = ids[Math.floor(Math.random() * ids.length)];
+  got[id] += 1;
+}
+
 // 執行互動,回傳訊息
 export function doInteract(sel, inv, stats) {
   if (sel.kind === 'corpse') {
@@ -60,6 +69,7 @@ export function doInteract(sel, inv, stats) {
     zb.looted = true;
     const got = { ...(zb.corpseLoot || {}) };
     if (zb.stuckArrows > 0) got.arrow = (got.arrow || 0) + zb.stuckArrows; // 回收插在身上的箭
+    forageBonus(got, stats);
     const parts = [];
     for (const [id, n] of Object.entries(got)) {
       inv.add(id, n);
@@ -69,6 +79,7 @@ export function doInteract(sel, inv, stats) {
   }
   if (sel.kind === 'loot') {
     const got = takeLoot(sel.point);
+    forageBonus(got, stats);
     const parts = [];
     for (const [id, n] of Object.entries(got)) {
       inv.add(id, n);

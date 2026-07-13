@@ -18,6 +18,10 @@
     position: absolute; top: 12px; left: 14px;
     font-size: 13px; color: #8a9a6b;
   }
+  #xp {
+    position: absolute; top: 32px; left: 14px;
+    font-size: 12.5px; color: #9a977f;
+  }
   #clock {
     position: absolute; top: 12px; right: 14px;
     font-size: 14px; text-align: right; line-height: 1.5;
@@ -206,6 +210,7 @@
 
 <div id="hud">
   <div id="fps">FPS --</div>
+  <div id="xp"></div>
   <div id="clock"><span class="day">第 1 天</span><br><span class="time">06:00</span></div>
   <div id="crosshair" class="hidden"></div>
   <div id="hitmark" class="hidden">✕</div>
@@ -233,10 +238,10 @@
 
 <div id="start-overlay">
   <h1>殘存之境</h1>
-  <div class="en">DEADFALL — M7.5 BUILD</div>
+  <div class="en">DEADFALL — M8 BUILD</div>
   <div class="keys">
     <b>WASD</b> 移動　<b>Shift</b> 奔跑　<b>Space</b> 跳躍　<b>Ctrl</b> 蹲伏（潛行）　<b>滑鼠左鍵</b> 攻擊<br>
-    <b>E</b> 互動　<b>Tab</b> 背包/製作　<b>B</b> 建造　<b>1-8</b> 快捷欄（武器=裝備、物品=使用）　<b>T</b> 時間加速<br>
+    <b>E</b> 互動　<b>Tab</b> 背包/製作　<b>B</b> 建造　<b>K</b> 技能樹　<b>1-8</b> 快捷欄（武器=裝備、物品=使用）　<b>T</b> 時間加速<br>
     <span style="color:#c84a3c">夜裡會有屍潮襲擊——用斧頭砍樹、築牆設刺、放張床,天黑前守好你的據點。</span>
   </div>
   <div id="save-btns" class="hidden">

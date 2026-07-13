@@ -5,6 +5,7 @@ import { spawnLoot } from './world/LootSpawner.js';
 import { TimeSystem } from './core/TimeSystem.js';
 import { Player } from './player/Player.js';
 import { Stats } from './player/Stats.js';
+import { Skills, SKILL_DEFS, XP } from './player/Skills.js';
 import { Inventory, ITEMS, quickbarIds } from './player/Items.js';
 import { RECIPES, costText, canCraft, craft, isNearFire, updateCampfires } from './systems/Crafting.js';
 import { findInteraction, doInteract } from './systems/Interaction.js';
@@ -30,20 +31,31 @@ scene.add(createTerrain());
 scene.add(spawnLoot());
 const timeSystem = new TimeSystem(scene);
 const stats = new Stats();
+const skills = new Skills();
+stats.skills = skills; // Items/Player/Stats 內部經由 stats 取用技能加成
 const inventory = new Inventory();
 const player = new Player(camera, renderer.domElement, stats);
 const enemies = new EnemyManager(scene);
 const buildings = new Buildings(scene);
+buildings.skills = skills;
 buildings.onDestroyed = (b) => toast(`⚠ ${b.def.name}被摧毀了!`);
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
-  camera, player, stats, inventory, enemies, toast,
+  camera, player, stats, inventory, enemies, toast, skills,
   isNight: () => timeSystem.nightFactor,
   onHit: (killed, zb) => {
     hitmark(killed);
-    if (killed) toast(`擊殺了${zb.def.name}`);
+    if (killed) {
+      toast(`擊殺了${zb.def.name}`);
+      gainXp(zb.def.xp || 10);
+    }
   },
 });
+
+// 加 XP;升級就提示(技能樹 M8)
+function gainXp(n) {
+  if (skills.addXp(n) > 0) toast(`⬆ 升到 Lv${skills.level}!獲得技能點——按 K 打開技能樹`);
+}
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -53,7 +65,7 @@ addEventListener('resize', () => {
 
 // ── HUD 元素 ──
 const $ = (id) => document.getElementById(id);
-const fpsEl = $('fps'), clockEl = $('clock'), crosshairEl = $('crosshair');
+const fpsEl = $('fps'), clockEl = $('clock'), crosshairEl = $('crosshair'), xpEl = $('xp');
 const overlayEl = $('start-overlay'), statsEl = $('stats'), deathEl = $('death-overlay');
 const vigHpEl = $('vig-hp'), vigThirstEl = $('vig-thirst');
 const effectsEl = $('effects'), quickbarEl = $('quickbar');
@@ -121,8 +133,8 @@ function hitmark(killed) {
   hitmark._t = setTimeout(() => hitmarkEl.classList.add('hidden'), 120);
 }
 
-// ── 面板(製作/建造/儲物箱共用同一塊 UI)──
-let panelMode = null; // null | 'craft' | 'build' | 'chest'
+// ── 面板(製作/建造/儲物箱/技能樹共用同一塊 UI)──
+let panelMode = null; // null | 'craft' | 'build' | 'chest' | 'skills'
 let chestRef = null;
 let chestActions = [];
 
@@ -135,19 +147,36 @@ function matsLine() {
 function renderCraftPanel() {
   const nearFire = isNearFire(player.position);
   const recipes = RECIPES.map((r, i) => {
-    const ok = canCraft(r, inventory, nearFire);
+    const ok = canCraft(r, inventory, nearFire, skills);
     const fire = r.needFire ? (nearFire ? '(營火旁 ✓)' : '(需靠近營火)') : '';
-    return `<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${r.name} <span class="req">${costText(r)} ${fire}</span></div>`;
+    return `<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${r.name} <span class="req">${costText(r, skills)} ${fire}</span></div>`;
   }).join('');
   panelEl.innerHTML = `<h2>背包 / 製作</h2><div class="mats">${matsLine()}</div>${recipes}<div class="hint">按數字鍵製作 · Tab 關閉</div>`;
 }
 
 function renderBuildPanel() {
+  const hpMult = skills.buildHpMult();
   const rows = BUILDABLES.map((b, i) => {
     const ok = buildings.canAfford(b, inventory);
-    return `<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${b.name} <span class="req">${costText(b)} · 耐久 ${b.hp}</span></div>`;
+    return `<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${b.name} <span class="req">${costText(b, skills)} · 耐久 ${Math.round(b.hp * hpMult)}</span></div>`;
   }).join('');
   panelEl.innerHTML = `<h2>建造</h2><div class="mats">${matsLine()}</div>${rows}<div class="hint">按數字選擇 → 左鍵放置(可連放) · 右鍵/B 取消 · Tab 關閉</div>`;
+}
+
+function renderSkillsPanel() {
+  let lastBranch = null;
+  const rows = SKILL_DEFS.map((s, i) => {
+    const lv = skills.levelOf(s.id);
+    const maxed = lv >= s.max;
+    const ok = skills.canUp(s.id);
+    const header = s.branch !== lastBranch ? `<div class="mats" style="margin:10px 0 2px">── ${s.branch} ──</div>` : '';
+    lastBranch = s.branch;
+    const state = maxed ? '<span style="color:#8a9a6b">已滿級</span>' : s.desc(lv + 1);
+    return `${header}<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${s.icon} ${s.name} Lv${lv}/${s.max} <span class="req">${state}</span></div>`;
+  }).join('');
+  panelEl.innerHTML = `<h2>技能樹</h2>
+    <div class="mats">Lv${skills.level} · XP ${Math.floor(skills.xp)}/${skills.xpNeed()} · 技能點 <span style="color:#e5a13c">${skills.points}</span></div>
+    ${rows}<div class="hint">按數字鍵加點(每點 1 技能點) · K/Tab 關閉</div>`;
 }
 
 function renderChestPanel() {
@@ -172,6 +201,7 @@ function setPanel(mode) {
   if (mode === 'craft') renderCraftPanel();
   else if (mode === 'build') renderBuildPanel();
   else if (mode === 'chest') renderChestPanel();
+  else if (mode === 'skills') renderSkillsPanel();
 }
 
 function doChestTransfer(digit) {
@@ -202,6 +232,11 @@ addEventListener('keydown', (e) => {
     toast(`時間流速 x${scale}`);
     return;
   }
+  if (e.code === 'KeyK') {
+    // 技能樹(規格 7.7)
+    setPanel(panelMode === 'skills' ? null : 'skills');
+    return;
+  }
   if (e.code === 'KeyB') {
     // 建造(規格第 8 章)
     if (buildings.placing) {
@@ -219,7 +254,13 @@ addEventListener('keydown', (e) => {
     if (sel.kind === 'chest') { chestRef = sel.b; setPanel('chest'); return; }
     if (sel.kind === 'bed') { trySleep(sel.b); return; }
     const msg = doInteract(sel, inventory, stats);
-    if (msg) toast(msg);
+    if (msg) {
+      toast(msg);
+      if (sel.kind === 'corpse') gainXp(XP.corpse);
+      else if (sel.kind === 'loot') {
+        gainXp(sel.point.type === 'berry' || sel.point.type === 'stick' ? XP.gather : XP.loot);
+      }
+    }
     if (panelMode === 'craft') renderCraftPanel();
     return;
   }
@@ -234,9 +275,20 @@ addEventListener('keydown', (e) => {
           playerPos: player.position,
           yaw: player.yaw,
           scene,
+          skills,
         });
         toast(msg || '材料不足或需要靠近營火');
+        if (msg) gainXp(XP.craft);
         renderCraftPanel();
+      }
+    } else if (panelMode === 'skills') {
+      // 數字 = 技能加點
+      const def = SKILL_DEFS[digit - 1];
+      if (def) {
+        const msg = skills.up(def.id);
+        if (msg) toast(msg);
+        else toast(skills.points <= 0 ? '沒有技能點——升級才會獲得' : '這個技能已滿級');
+        renderSkillsPanel();
       }
     } else if (panelMode === 'build') {
       // 數字 = 選擇建造物,進入放置模式
@@ -272,6 +324,7 @@ addEventListener('mousedown', (e) => {
       const msg = buildings.tryPlace(inventory);
       if (msg) {
         toast(msg);
+        gainXp(XP.build);
         updateQuickbar();
       }
     } else {
@@ -316,6 +369,8 @@ if (params.has('pos')) {
   if (Number.isFinite(px) && Number.isFinite(pz)) player.position.set(px, 0, pz);
 }
 if (params.has('yaw')) player.yaw = (parseFloat(params.get('yaw')) || 0) * Math.PI / 180;
+if (params.has('xp')) skills.addXp(parseInt(params.get('xp')) || 0); // 測試技能樹用
+if (params.has('panel')) setPanel(params.get('panel')); // 直接開指定面板(截圖驗證 UI 用)
 if (params.has('items')) { // ?items=cloth:4,wood:5
   for (const part of params.get('items').split(',')) {
     const [id, n] = part.split(':');
@@ -327,7 +382,7 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -364,7 +419,7 @@ function updateStatsHud() {
   bars.hp.style.transform = `scaleX(${stats.hp / 100})`;
   bars.hunger.style.transform = `scaleX(${stats.hunger / 100})`;
   bars.thirst.style.transform = `scaleX(${stats.thirst / 100})`;
-  bars.stamina.style.transform = `scaleX(${stats.stamina / 100})`;
+  bars.stamina.style.transform = `scaleX(${stats.stamina / stats.staminaMax})`; // 上限會被技能提高
   bars.hp.parentElement.classList.toggle('low', stats.hp < 25);
   bars.hunger.parentElement.classList.toggle('low', stats.hunger < 25);
   bars.thirst.parentElement.classList.toggle('low', stats.thirst < 25);
@@ -421,6 +476,7 @@ function showDeath() {
 const clock = new THREE.Clock();
 let started = false;
 let fpsFrames = 0, fpsTimer = 0, slowTimer = 0;
+let lastXpDay = 0; // 存活天數 XP 的基準(0 = 首次進 loop 時初始化,讀檔天數也適用)
 let elapsed = 0;
 let autosaveTimer = 0;
 
@@ -469,11 +525,21 @@ function loop() {
     slowTimer = 0;
     updateQuickbar();
     updateEffects();
-    // 屍潮夜襲檢查(規格 7.2)
     if (stats.alive && started) {
+      // 屍潮夜襲檢查(規格 7.2)
       const horde = enemies.maybeHorde(timeSystem, player.position, elapsed);
       if (horde) toast('🧟 屍潮來襲!成群的嘶吼從黑暗中逼近……');
+      // 每撐過一天給 XP(睡覺快轉也算)
+      if (lastXpDay === 0) lastXpDay = timeSystem.day;
+      if (timeSystem.day > lastXpDay) {
+        gainXp(XP.day * (timeSystem.day - lastXpDay));
+        lastXpDay = timeSystem.day;
+        toast(`🌅 又撐過一天 +${XP.day} XP`);
+      }
     }
+    // 左上角經驗值;有沒花的技能點就亮起提醒
+    const pts = skills.points > 0 ? ` · <span style="color:#e5a13c">技能點 ×${skills.points}(按 K)</span>` : '';
+    xpEl.innerHTML = `Lv${skills.level} · ${Math.floor(skills.xp)}/${skills.xpNeed()} XP${pts}`;
   }
   // 自動存檔(20 秒一次)
   autosaveTimer += dt;

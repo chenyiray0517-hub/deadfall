@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.js';
 import { Inventory } from '../player/Items.js';
 import { terrainHeight, colliders, isDeepWater, TERRAIN_SIZE } from '../world/Terrain.js';
+import { costOf } from './Crafting.js';
 
 // 建造系統(M7,規格 7.2 起步集)
 // 放置的建築註冊到 Terrain.colliders.boxes:玩家/感染者碰撞、AI 視線遮擋全部自動生效
@@ -27,10 +28,11 @@ export class Buildings {
     this.placeValid = false;
     this.homeBed = null;     // 重生點(最後睡過/放置的床)
     this.onDestroyed = null; // (b) => {} 被拆毀時通知 UI
+    this.skills = null;      // 技能加成(工匠省料/建築師耐久;main 設定)
   }
 
   canAfford(def, inv) {
-    return Object.entries(def.cost).every(([id, n]) => inv.count(id) >= n);
+    return Object.entries(costOf(def, this.skills)).every(([id, n]) => inv.count(id) >= n);
   }
 
   // 旋轉吸附 90 度,所以佔地永遠是軸對齊 AABB
@@ -107,8 +109,9 @@ export class Buildings {
   // 放置(建造模式中左鍵);成功回傳訊息,可連續放置
   tryPlace(inv) {
     if (!this.placing || !this.placeValid) return null;
-    for (const [id, n] of Object.entries(this.placing.cost)) inv.remove(id, n);
-    this.place(this.placing, this.placeX, this.placeZ, this.placeRot);
+    for (const [id, n] of Object.entries(costOf(this.placing, this.skills))) inv.remove(id, n);
+    const b = this.place(this.placing, this.placeX, this.placeZ, this.placeRot);
+    b.hp *= this.skills?.buildHpMult() ?? 1; // 🏗 建築師:新建築耐久 +50%
     return `建造了${this.placing.name}`;
   }
 

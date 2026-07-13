@@ -10,17 +10,27 @@ export const RECIPES = [
   { id: 'bat', name: '木棒', cost: { wood: 2 }, gives: { bat: 1 } },
   { id: 'bow', name: '自製弓', cost: { wood: 3, cloth: 1 }, gives: { bow: 1 } },
   { id: 'arrows', name: '木箭×3', cost: { wood: 1 }, gives: { arrow: 3 } },
+  { id: 'cook', name: '烤肉', cost: { rawmeat: 1 }, gives: { cooked: 1 }, needFire: true },
 ];
 
-export function costText(recipe) {
-  return Object.entries(recipe.cost)
+// 實際材料費:🔨 巧手工匠 -20%(向下取整,至少 1)
+export function costOf(recipe, skills) {
+  const mult = skills?.costMult() ?? 1;
+  if (mult >= 1) return recipe.cost;
+  const out = {};
+  for (const [id, n] of Object.entries(recipe.cost)) out[id] = Math.max(1, Math.floor(n * mult));
+  return out;
+}
+
+export function costText(recipe, skills) {
+  return Object.entries(costOf(recipe, skills))
     .map(([id, n]) => `${ITEMS[id].name}×${n}`)
     .join(' + ');
 }
 
-export function canCraft(recipe, inv, nearFire) {
+export function canCraft(recipe, inv, nearFire, skills) {
   if (recipe.needFire && !nearFire) return false;
-  return Object.entries(recipe.cost).every(([id, n]) => inv.count(id) >= n);
+  return Object.entries(costOf(recipe, skills)).every(([id, n]) => inv.count(id) >= n);
 }
 
 // 場上的營火 {x, z, light, flame, phase}
@@ -31,9 +41,9 @@ export function isNearFire(pos, dist = 3.5) {
 }
 
 // 製作;成功回傳訊息,失敗回傳 null
-export function craft(recipe, inv, { nearFire, playerPos, yaw, scene }) {
-  if (!canCraft(recipe, inv, nearFire)) return null;
-  for (const [id, n] of Object.entries(recipe.cost)) inv.remove(id, n);
+export function craft(recipe, inv, { nearFire, playerPos, yaw, scene, skills }) {
+  if (!canCraft(recipe, inv, nearFire, skills)) return null;
+  for (const [id, n] of Object.entries(costOf(recipe, skills))) inv.remove(id, n);
 
   if (recipe.place) {
     // 營火直接放在面前

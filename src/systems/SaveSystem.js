@@ -51,9 +51,10 @@ export function applyTakenLoot(arr) {
   }
 }
 
-export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies }) {
+export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills }) {
   const data = {
     v: 1,
+    skills: skills ? skills.serialize() : null,
     time: { t: timeSystem.timeOfDay, day: timeSystem.day },
     stats: {
       hp: stats.hp, hunger: stats.hunger, thirst: stats.thirst, stamina: stats.stamina,
@@ -77,10 +78,11 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
 }
 
 // data 來自 peekSave();呼叫端負責之後的 HUD 重繪
-export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene }) {
+export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills }) {
   timeSystem.timeOfDay = data.time.t;
   timeSystem.day = data.time.day;
 
+  if (skills) skills.loadFrom(data.skills); // 舊檔沒有 skills = 從 Lv1 開始
   Object.assign(stats, data.stats);
   stats.alive = true;
   stats.deathCause = '';

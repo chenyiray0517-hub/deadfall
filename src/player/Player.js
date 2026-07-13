@@ -59,9 +59,10 @@ export class Player {
   get noiseRadius() {
     const { running, moving } = this.stats.activity;
     if (!moving) return 0;
-    if (running) return 18;
-    if (this.crouching) return 3;
-    return 9;
+    const mult = this.stats.skills ? this.stats.skills.noiseMult() : 1; // 🐾 輕足
+    if (running) return 18 * mult;
+    if (this.crouching) return 3 * mult;
+    return 9 * mult;
   }
 
   update(dt) {

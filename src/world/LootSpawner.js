@@ -1,6 +1,6 @@
 import * as THREE from '../lib/three.js';
 import {
-  TERRAIN_SIZE, terrainHeight, biomeWeights, roadMask, isDeepWater,
+  TERRAIN_SIZE, AREA_SCALE, terrainHeight, biomeWeights, roadMask, isDeepWater,
   insideAnyBox, insideNoSpawn, mulberry32,
 } from './Terrain.js';
 import { structureSpots } from './Structures.js';
@@ -132,7 +132,7 @@ export function spawnLoot() {
   const half = TERRAIN_SIZE / 2 - 12;
 
   // ── 野果叢(荒野採集,規格 4.2)──
-  const BERRY_MAX = 26;
+  const BERRY_MAX = 26 * AREA_SCALE;
   const bushGeo = new THREE.IcosahedronGeometry(0.7, 0);
   bushGeo.scale(1, 0.75, 1);
   const bushMat = new THREE.MeshLambertMaterial({ color: '#2f4526' });
@@ -144,7 +144,7 @@ export function spawnLoot() {
 
   const m = new THREE.Matrix4();
   let bc = 0;
-  for (let tries = 0; tries < 1200 && bc < BERRY_MAX; tries++) {
+  for (let tries = 0; tries < 1200 * AREA_SCALE && bc < BERRY_MAX; tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     if (biomeWeights(x, z).wild < 0.75) continue;
@@ -166,7 +166,7 @@ export function spawnLoot() {
   group.add(bushes, berries);
 
   // ── 樹枝(荒野/鄉村地上,撿了當木柴)──
-  const STICK_MAX = 26;
+  const STICK_MAX = 26 * AREA_SCALE;
   const stickGeo = new THREE.CylinderGeometry(0.05, 0.08, 1.2, 5);
   const stickMat = new THREE.MeshLambertMaterial({ color: '#5a4530' });
   const sticks = new THREE.InstancedMesh(stickGeo, stickMat, STICK_MAX);
@@ -174,7 +174,7 @@ export function spawnLoot() {
   const q = new THREE.Quaternion();
   const one = new THREE.Vector3(1, 1, 1);
   let sc = 0;
-  for (let tries = 0; tries < 1200 && sc < STICK_MAX; tries++) {
+  for (let tries = 0; tries < 1200 * AREA_SCALE && sc < STICK_MAX; tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     const w = biomeWeights(x, z);
@@ -216,13 +216,13 @@ export function spawnLoot() {
   group.add(crates);
 
   // ── 垃圾堆(城市搜刮)──
-  const TRASH_MAX = 18;
+  const TRASH_MAX = 18 * AREA_SCALE;
   const trashGeo = new THREE.DodecahedronGeometry(0.75, 0);
   trashGeo.scale(1, 0.55, 1);
   const trashMat = new THREE.MeshLambertMaterial({ color: '#55524c' });
   const trash = new THREE.InstancedMesh(trashGeo, trashMat, TRASH_MAX);
   let tc = 0;
-  for (let tries = 0; tries < 800 && tc < TRASH_MAX; tries++) {
+  for (let tries = 0; tries < 800 * AREA_SCALE && tc < TRASH_MAX; tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     if (biomeWeights(x, z).urban < 0.8) continue;

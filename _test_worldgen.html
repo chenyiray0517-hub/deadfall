@@ -8,15 +8,18 @@ try {
   const L = await import('./src/world/LootSpawner.js');
 
   const counts = { 荒野區: 0, 鄉村區: 0, 城市區: 0 };
+  const sampleHalf = T.TERRAIN_SIZE / 2 - 10;
   for (let i = 0; i < 10000; i++) {
-    const x = (Math.random() * 2 - 1) * 240;
-    const z = (Math.random() * 2 - 1) * 240;
+    const x = (Math.random() * 2 - 1) * sampleHalf;
+    const z = (Math.random() * 2 - 1) * sampleHalf;
     counts[T.regionName(x, z)]++;
   }
+  out.push('地圖尺寸: ' + T.TERRAIN_SIZE + ' (倍率 ' + T.WORLD_SCALE + ')');
   out.push('區域分布: ' + JSON.stringify(counts));
   out.push('出生點: ' + T.regionName(T.SPAWN.x, T.SPAWN.z) + ' 高度=' + T.terrainHeight(T.SPAWN.x, T.SPAWN.z).toFixed(2) + ' 深水=' + T.isDeepWater(T.SPAWN.x, T.SPAWN.z));
-  out.push('湖心高度: ' + T.terrainHeight(-160, 90).toFixed(2) + ' 深水=' + T.isDeepWater(-160, 90));
-  out.push('城市高度樣本: ' + [T.terrainHeight(200, 0), T.terrainHeight(180, 100), T.terrainHeight(220, -150)].map(v => v.toFixed(2)).join(', '));
+  out.push('湖心高度: ' + T.terrainHeight(T.LAKE.x, T.LAKE.z).toFixed(2) + ' 深水=' + T.isDeepWater(T.LAKE.x, T.LAKE.z));
+  const sx = T.WORLD_SCALE;
+  out.push('城市高度樣本: ' + [T.terrainHeight(200 * sx, 0), T.terrainHeight(180 * sx, 100 * sx), T.terrainHeight(220 * sx, -150 * sx)].map(v => v.toFixed(2)).join(', '));
 
   S.createStructures();
   T.createTerrain();

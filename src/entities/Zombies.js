@@ -1,6 +1,6 @@
 import * as THREE from '../lib/three.js';
 import {
-  TERRAIN_SIZE, terrainHeight, biomeWeights, isDeepWater,
+  TERRAIN_SIZE, AREA_SCALE, terrainHeight, biomeWeights, isDeepWater,
   resolveColliders, losBlocked, insideAnyBox, insideNoSpawn, SPAWN, mulberry32,
 } from '../world/Terrain.js';
 import { routeViaDoor } from '../world/Interiors.js';
@@ -10,17 +10,17 @@ const TYPES = {
   walker: {
     name: '遊蕩者', hp: 60, wanderSpeed: 0.5, chaseSpeed: 1.2,
     viewDist: 30, hearMult: 1.4, dmg: 10, attackRange: 1.6, dog: false,
-    color: '#6a755c',
+    color: '#6a755c', xp: 12,
   },
   runner: {
     name: '奔跑者', hp: 45, wanderSpeed: 0.8, chaseSpeed: 3.3,
     viewDist: 45, hearMult: 1.0, dmg: 8, attackRange: 1.5, dog: false, scream: true,
-    color: '#7a6a58',
+    color: '#7a6a58', xp: 15,
   },
   dog: {
     name: '感染犬', hp: 35, wanderSpeed: 1.1, chaseSpeed: 3.55,
     viewDist: 38, hearMult: 1.6, dmg: 7, attackRange: 1.3, dog: true,
-    color: '#524238',
+    color: '#524238', xp: 10,
   },
 };
 
@@ -47,6 +47,7 @@ class Zombie {
     this.lastKnown = null;     // 玩家最後已知位置
     this.attackCd = 0;
     this.senseTimer = Math.random() * 0.2; // 錯開感知檢查
+    this.lodDt = 0; // 遠處降頻更新的累積時間(地圖擴大後省效能)
     this.screamed = false;
     this.bobPhase = Math.random() * 10;
 
@@ -316,13 +317,13 @@ export class EnemyManager {
     this.noiseTimer = 0;
     const rng = mulberry32(55667);
 
-    // 各區密度:城市高、鄉村中、荒野低(規格 4.1 風險梯度)
-    this.spawnGroup(rng, 'walker', 12, (w) => w.urban > 0.7);
-    this.spawnGroup(rng, 'runner', 6, (w) => w.urban > 0.7);
-    this.spawnGroup(rng, 'walker', 6, (w) => w.rural > 0.7);
-    this.spawnGroup(rng, 'runner', 2, (w) => w.rural > 0.7);
-    this.spawnGroup(rng, 'walker', 3, (w) => w.wild > 0.8);
-    this.spawnGroup(rng, 'dog', 4, (w) => w.wild > 0.5 || w.rural > 0.5);
+    // 各區密度:城市高、鄉村中、荒野低(規格 4.1 風險梯度);總量隨地圖面積等比
+    this.spawnGroup(rng, 'walker', 12 * AREA_SCALE, (w) => w.urban > 0.7);
+    this.spawnGroup(rng, 'runner', 6 * AREA_SCALE, (w) => w.urban > 0.7);
+    this.spawnGroup(rng, 'walker', 6 * AREA_SCALE, (w) => w.rural > 0.7);
+    this.spawnGroup(rng, 'runner', 2 * AREA_SCALE, (w) => w.rural > 0.7);
+    this.spawnGroup(rng, 'walker', 3 * AREA_SCALE, (w) => w.wild > 0.8);
+    this.spawnGroup(rng, 'dog', 4 * AREA_SCALE, (w) => w.wild > 0.5 || w.rural > 0.5);
 
     // 屍潮夜襲排程(規格 7.2:每 3~7 天一波,第 3 天起)
     this.nextHordeDay = 3;
@@ -488,7 +489,17 @@ export class EnemyManager {
       buildings,
       onAttack: (dmg, cause) => stats.applyBite(dmg, cause), // 傷害 + 感染判定(M6)
     };
-    for (const zb of this.zombies) zb.update(dt, world);
+    // 降頻更新:遠處(玩家 130m 外,霧裡幾乎看不到)的感染者每 0.35 秒才走一步,
+    // 地圖/數量放大 4 倍後,全速更新的只剩玩家身邊那圈
+    const LOD_DIST2 = 130 * 130;
+    const px = player.position.x, pz = player.position.z;
+    for (const zb of this.zombies) {
+      const ddx = zb.pos.x - px, ddz = zb.pos.z - pz;
+      zb.lodDt += dt;
+      if (ddx * ddx + ddz * ddz > LOD_DIST2 && zb.lodDt < 0.35) continue;
+      zb.update(zb.lodDt, world);
+      zb.lodDt = 0;
+    }
 
     // 死後重生:低於初始人口就在遠處補生;夜晚刷新加倍(規格 4.1)
     this.respawnTimer -= dt;

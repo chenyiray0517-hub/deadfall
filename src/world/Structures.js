@@ -1,9 +1,9 @@
 import * as THREE from '../lib/three.js';
 import {
-  TERRAIN_SIZE, terrainHeight, biomeWeights, roadMask, mainRoadCenter,
+  TERRAIN_SIZE, WORLD_SCALE, AREA_SCALE, terrainHeight, biomeWeights, roadMask, mainRoadCenter,
   colliders, insideAnyBox, mulberry32,
 } from './Terrain.js';
-import { HOUSE_TYPES, TOWER_TYPES, buildInterior, finishInteriors } from './Interiors.js';
+import { HOUSE_TYPES, TOWER_TYPES, buildInterior, finishInteriors, interiorRooms } from './Interiors.js';
 
 // 建築位置登記,供 LootSpawner 在附近放物資點
 export const structureSpots = []; // {x, z, kind: 'house'|'barn'|'building'|'car'}
@@ -13,6 +13,26 @@ const matBarnRoof = new THREE.MeshLambertMaterial({ color: '#4a3a30' });
 
 function addBoxCollider(x, z, w, d) {
   colliders.boxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+}
+
+// 已放建築的門前淨空區:之後的建築/車輛不能壓進來,不然門口會被擋死
+const doorZones = [];
+function reserveDoorZone() {
+  const room = interiorRooms[interiorRooms.length - 1];
+  if (!room) return;
+  const cx = (room.minX + room.maxX) / 2, cz = (room.minZ + room.maxZ) / 2;
+  const nx = room.doorX - cx, nz = room.doorZ - cz;
+  const d = Math.hypot(nx, nz) || 1;
+  const ox = room.doorX + (nx / d) * 2.2, oz = room.doorZ + (nz / d) * 2.2;
+  doorZones.push({
+    minX: Math.min(room.doorX, ox) - 1.4, maxX: Math.max(room.doorX, ox) + 1.4,
+    minZ: Math.min(room.doorZ, oz) - 1.4, maxZ: Math.max(room.doorZ, oz) + 1.4,
+  });
+}
+function hitsDoorZone(x, z, w, d) {
+  return doorZones.some((r) =>
+    x + w / 2 > r.minX && x - w / 2 < r.maxX &&
+    z + d / 2 > r.minZ && z - d / 2 < r.maxZ);
 }
 
 // 四角錐屋頂(Cone 4 邊轉 45 度壓成矩形)
@@ -41,8 +61,10 @@ export function createStructures() {
   const half = TERRAIN_SIZE / 2 - 15;
 
   // ── 鄉村:農舍 + 穀倉,沿公路兩側散布 ──
+  const HOUSE_MAX = 10 * AREA_SCALE;
+  const BARN_MAX = 4 * AREA_SCALE;
   let houses = 0, barns = 0;
-  for (let tries = 0; tries < 3000 && (houses < 10 || barns < 4); tries++) {
+  for (let tries = 0; tries < 3000 * AREA_SCALE && (houses < HOUSE_MAX || barns < BARN_MAX); tries++) {
     const x = (rng() * 2 - 1) * half;
     const z = (rng() * 2 - 1) * half;
     const w = biomeWeights(x, z);
@@ -51,9 +73,10 @@ export function createStructures() {
     if (distRoad < 10 || distRoad > 70) continue; // 靠路但不壓路
     if (insideAnyBox(x, z, 8)) continue;
 
-    const isBarn = barns < 4 && rng() < 0.35;
-    if (!isBarn && houses >= 10) continue;
+    const isBarn = barns < BARN_MAX && rng() < 0.35;
+    if (!isBarn && houses >= HOUSE_MAX) continue;
     if (isBarn) {
+      if (hitsDoorZone(x, z, 9, 7)) continue;
       // 穀倉維持實心(室內之後有需要再開)
       const b = makeHouse(8, 6, 4.5, matBarn, matBarnRoof);
       b.position.set(x, terrainHeight(x, z), z);
@@ -65,7 +88,9 @@ export function createStructures() {
       // 鄉村房 3 種,有室內可搜刮(M8);門面朝向公路那一側
       const type = HOUSE_TYPES[Math.floor(rng() * HOUSE_TYPES.length)];
       const rot = z > mainRoadCenter(x) ? 2 : 0;
+      if (hitsDoorZone(x, z, type.w + 1, type.d + 1)) continue;
       buildInterior(group, type, x, z, rot);
+      reserveDoorZone();
       structureSpots.push({ x, z, kind: 'house' });
       houses++;
     }
@@ -91,14 +116,17 @@ export function createStructures() {
         const ox = (rng() - 0.5) * 16;
         const oz = (rng() - 0.5) * 16;
         const x = cx + ox, z = cz + oz;
-        if (insideAnyBox(x, z, 4)) continue;
         // 大樓 3 種,一樓有室內可搜刮(M8);上層維持實心樓體
         const type = TOWER_TYPES[Math.floor(rng() * TOWER_TYPES.length)];
         const bh2 = 8 + rng() * 20;
         const rot = Math.floor(rng() * 4);
-        const yb = buildInterior(group, type, x, z, rot);
         const uw = rot % 2 ? type.d : type.w;
         const ud = rot % 2 ? type.w : type.d;
+        // 間距按實際樓寬算(留 2.5m 縫),並避開別棟的門前淨空區
+        if (insideAnyBox(x, z, Math.max(uw, ud) / 2 + 2.5)) continue;
+        if (hitsDoorZone(x, z, uw + 1, ud + 1)) continue;
+        const yb = buildInterior(group, type, x, z, rot);
+        reserveDoorZone();
         const upper = new THREE.Mesh(
           new THREE.BoxGeometry(uw, bh2 - type.h, ud),
           buildingMats[Math.floor(rng() * buildingMats.length)]
@@ -115,9 +143,10 @@ export function createStructures() {
   const carBody = new THREE.BoxGeometry(4.2, 1.1, 1.9);
   const carCabin = new THREE.BoxGeometry(2.2, 0.8, 1.7);
   const carColors = ['#6a4a3a', '#4a5a6a', '#5a5040', '#703830'];
-  for (let x = -60; x < half; x += 22 + rng() * 30) {
+  for (let x = -60 * WORLD_SCALE; x < half; x += 22 + rng() * 30) {
     if (rng() < 0.45) continue;
     const z = mainRoadCenter(x) + (rng() - 0.5) * 5;
+    if (hitsDoorZone(x, z, 5.5, 4)) continue;
     const y = terrainHeight(x, z);
     const mat = new THREE.MeshLambertMaterial({ color: carColors[Math.floor(rng() * carColors.length)] });
     const body = new THREE.Mesh(carBody, mat);
