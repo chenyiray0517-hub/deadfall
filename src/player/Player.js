@@ -29,6 +29,7 @@ export class Player {
 
     this.keys = {};
     this.locked = false;
+    this.driving = null; // 開車中 = Vehicle 實例(M8c);移動/相機交給 VehicleManager
 
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z);
 
@@ -57,6 +58,7 @@ export class Player {
 
   // 目前製造的噪音半徑(感染者聽覺偵測用,規格 5.3:奔跑>行走>蹲行)
   get noiseRadius() {
+    if (this.driving) return this.driving.noiseNow || 0; // 開車 = 引擎聲(腳踏車無聲)
     const { running, moving } = this.stats.activity;
     if (!moving) return 0;
     const mult = this.stats.skills ? this.stats.skills.noiseMult() : 1; // 🐾 輕足
@@ -67,6 +69,7 @@ export class Player {
 
   update(dt) {
     const stats = this.stats;
+    if (this.driving) return; // 開車中:位置/相機由 VehicleManager 接手
     const controllable = this.locked && stats.alive;
 
     // 蹲伏:平滑升降視線高度

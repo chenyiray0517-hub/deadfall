@@ -26,7 +26,8 @@
 - [x] **地圖擴大 4 倍**(2026-07-13):500×500 → 1000×1000(`WORLD_SCALE`/`AREA_SCALE` 等比換算),樹/石/建築/物資/感染者數量 ×4;遠處感染者降頻更新;建築門前淨空區
 - [x] **M8a 建築室內**(2026-07-12):大樓一樓 3 種(便利商店/辦公室/公寓大廳)+ 鄉村房 3 種(小農舍/農家/工具屋),同種內部佈局固定;可搜刮家具 6 類(貨架/冰箱/櫃台/櫥櫃/衣櫃/辦公桌)各自掉落表;感染者會繞到門口追進室內;存檔的已拿物資點改座標比對
 - [x] **M8b 技能樹**(2026-07-13):XP 升級給技能點(擊殺/搜刮/採集/製作/建造/存活天數),K 鍵開三分支九技能(生存/戰鬥/製作,規格 7.7 簡化版;社交分支等 NPC),含存讀檔;順手補上「烤肉」配方(營火烹飪)
-- [ ] M8 其餘深度:NPC、任務、載具、劇情(技能樹的社交分支、熟練度軌也還沒做)
+- [x] **M8c 載具**(2026-07-13):腳踏車+皮卡(規格 7.5),沿主幹道路肩固定生成;拆廢棄車得汽油/零件 → 裝零件修車 → E 上車 WASD 駕駛(第三人稱跟車視角);皮卡可衝撞、引擎聲引怪、感染者打車體;含存讀檔
+- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支、熟練度軌也還沒做;載具的摩托車/巴士也待補)
 
 ## 架構備忘
 
@@ -68,7 +69,7 @@
   - 門:toggleDoor 開 = 從 colliders.boxes splice 掉(不擋路不擋視線)+ mesh 轉 1.25rad。
   - 床:E 睡覺(20:00~05:00 且 45m 內無追擊者)→ `sleepUntilMorning`(快轉到 6 點、+20HP、扣飢渴但不會睡死)+ 設 homeBed。死亡若有床 → `doRespawn`:`dropHalfInventory`(每疊掉一半)+ 感染歸零 + enemies.calmAll。儲物箱 storage 是獨立 Inventory,死亡不掉。
   - 屍潮:`EnemyManager.maybeHorde(timeSystem, playerPos, now)`,main 每 0.25s 檢查;第 3 天起、夜間時刻觸發,在玩家 55~70m 外生成 4+day×2 隻(上限 24)直接 chase,之後 3~7 天冷卻。
-  - 斧頭砍樹:Combat.melee 揮空且裝備 axe → 檢查面前 `colliders.circles`(目前只有樹)→ +2 木柴、磨耐久。
+  - 斧頭砍樹:Combat.melee 揮空且裝備 axe/handaxe(自製斧,可製作)→ 檢查面前 `colliders.circles`(目前只有樹)→ +2 木柴、磨耐久。
   - 測試參數:`?day=N` 設天數(配 `?t=22` 直接觸發屍潮)。
   - `_test_m7.html`:M7 邏輯測試頁(25 條),headless --dump-dom 跑。
 - M7.5 架構:
@@ -92,6 +93,13 @@
   - UI:K 鍵開技能面板(共用 #panel,panelMode 'skills'),數字鍵加點;左上 #xp 顯示等級/XP,有未花點數會亮提示。存檔加 `skills` 欄位(舊檔沒有 = 從 Lv1 開始,相容)。
   - 測試參數:`?xp=200` 給初始經驗、`?panel=skills` 直接開面板(截圖驗證 UI 用)。
   - `_test_skills.html`:技能邏輯測試頁(36 條),headless --dump-dom 跑。
+- M8c 載具架構:
+  - 全在 `systems/Vehicles.js`:VEHICLE_TYPES(bike/pickup,needs 零件表+速度/油/噪音/衝撞參數)+ Vehicle + VehicleManager。固定 seed(424242)沿主幹道路肩生成 腳踏車×2(鄉村)、皮卡×2(鄉村/城市);零件物品 engine/tire/battery/fuel 在 Items.js,來源 = 拆廢棄車(`carSpots`,每輛一次)+ 補給箱低權重。
+  - 駕駛:`manager.update(dt, ctx)` 做油門/轉向/油耗/碰撞(`resolveSelf` 跳過自己的 collider box)/皮卡衝撞(前方 1.7m、每隻 0.8s 判一次)/第三人稱跟車相機;每幀把 `player.position/yaw` 同步到車上(感染者追玩家座標就會追車)。載具有一顆會跟著動的 AABB collider(方形近似)。
+  - 接點:`player.driving` 有值時 Player.update 直接 return、`noiseRadius` 改讀 `vehicle.noiseNow`(引擎聲引怪);`enemies.interceptAttack`(main 掛)讓感染者攻擊先打車體,車 hp 0 拋錨(廢金屬×3 修一半)才咬得到人。開車時 main 擋掉攻擊/面板,只吃 E 下車、R 加油(一桶 +15,油箱 40)。
+  - 互動走 `vehicles.findInteraction`(Interaction.findInteraction 第 5 參數轉呼叫),kind 'vehicle'(修理→裝零件/拋錨→修車體/可開→上車)與 'carwreck';執行在 `vehicles.interact`。
+  - 存檔:載具依生成順序索引還原(seed 固定所以穩),廢棄車已拆用座標比對;舊檔沒 vehicles 欄位 = 全新未修狀態。
+  - `_test_vehicles.html`:載具邏輯測試頁(32 條),headless --dump-dom 跑。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

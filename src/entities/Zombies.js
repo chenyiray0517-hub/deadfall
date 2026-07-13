@@ -487,7 +487,11 @@ export class EnemyManager {
       manager: this,
       now,
       buildings,
-      onAttack: (dmg, cause) => stats.applyBite(dmg, cause), // 傷害 + 感染判定(M6)
+      onAttack: (dmg, cause) => {
+        // 玩家在載具裡時打的是車體(M8c;main 掛 interceptAttack,車爛了才咬得到人)
+        if (this.interceptAttack && this.interceptAttack(dmg)) return;
+        stats.applyBite(dmg, cause); // 傷害 + 感染判定(M6)
+      },
     };
     // 降頻更新:遠處(玩家 130m 外,霧裡幾乎看不到)的感染者每 0.35 秒才走一步,
     // 地圖/數量放大 4 倍後,全速更新的只剩玩家身邊那圈

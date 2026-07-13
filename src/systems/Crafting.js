@@ -8,6 +8,7 @@ export const RECIPES = [
   { id: 'campfire', name: '營火', cost: { wood: 3 }, place: true },
   { id: 'boil', name: '煮沸水', cost: { dirty: 1 }, gives: { boiled: 1 }, needFire: true },
   { id: 'bat', name: '木棒', cost: { wood: 2 }, gives: { bat: 1 } },
+  { id: 'handaxe', name: '自製斧', cost: { wood: 4, cloth: 3, scrap: 5 }, gives: { handaxe: 1 } },
   { id: 'bow', name: '自製弓', cost: { wood: 3, cloth: 1 }, gives: { bow: 1 } },
   { id: 'arrows', name: '木箭×3', cost: { wood: 1 }, gives: { arrow: 3 } },
   { id: 'cook', name: '烤肉', cost: { rawmeat: 1 }, gives: { cooked: 1 }, needFire: true },

@@ -51,7 +51,7 @@ export function applyTakenLoot(arr) {
   }
 }
 
-export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills }) {
+export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills, vehicles }) {
   const data = {
     v: 1,
     skills: skills ? skills.serialize() : null,
@@ -68,6 +68,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
     enemies: enemies.serialize(),
     loot: encodeTakenLoot(),
     fires: campfires.map((f) => ({ x: f.x, z: f.z })),
+    vehicles: vehicles ? vehicles.serialize() : null, // M8c(舊檔沒有 = 全新未修狀態)
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -78,7 +79,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
 }
 
 // data 來自 peekSave();呼叫端負責之後的 HUD 重繪
-export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills }) {
+export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles }) {
   timeSystem.timeOfDay = data.time.t;
   timeSystem.day = data.time.day;
 
@@ -101,6 +102,7 @@ export function loadGame(data, { timeSystem, stats, inventory, player, combat, b
   buildings.loadFrom(data.buildings);
   enemies.loadFrom(data.enemies);
 
+  if (vehicles) vehicles.loadFrom(data.vehicles);
   applyTakenLoot(data.loot);
   for (const f of data.fires) placeCampfire(scene, f.x, f.z);
 }

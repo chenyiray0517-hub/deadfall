@@ -13,6 +13,7 @@ import { EnemyManager } from './entities/Zombies.js';
 import { Combat } from './systems/Combat.js';
 import { Buildings, BUILDABLES, sleepUntilMorning, dropHalfInventory } from './systems/Building.js';
 import { peekSave, clearSave, saveGame, loadGame } from './systems/SaveSystem.js';
+import { VehicleManager } from './systems/Vehicles.js';
 
 // ── 基礎場景 ──
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -39,6 +40,9 @@ const enemies = new EnemyManager(scene);
 const buildings = new Buildings(scene);
 buildings.skills = skills;
 buildings.onDestroyed = (b) => toast(`⚠ ${b.def.name}被摧毀了!`);
+const vehicles = new VehicleManager(scene); // 載具(M8c;要在 createStructures 之後,拿廢棄車位置)
+vehicles.toast = toast;
+enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
   camera, player, stats, inventory, enemies, toast, skills,
@@ -70,7 +74,7 @@ const overlayEl = $('start-overlay'), statsEl = $('stats'), deathEl = $('death-o
 const vigHpEl = $('vig-hp'), vigThirstEl = $('vig-thirst');
 const effectsEl = $('effects'), quickbarEl = $('quickbar');
 const promptEl = $('prompt'), toastsEl = $('toasts'), panelEl = $('panel');
-const weaponEl = $('weapon'), hitmarkEl = $('hitmark');
+const weaponEl = $('weapon'), hitmarkEl = $('hitmark'), vehicleEl = $('vehicle');
 const bars = {
   hp: document.querySelector('#bar-hp i'),
   hunger: document.querySelector('#bar-hunger i'),
@@ -222,7 +226,7 @@ function doChestTransfer(digit) {
 addEventListener('keydown', (e) => {
   if (e.code === 'Tab') {
     e.preventDefault();
-    if (player.locked && stats.alive) setPanel(panelMode ? null : 'craft');
+    if (player.locked && stats.alive && !vehicles.driving) setPanel(panelMode ? null : 'craft');
     return;
   }
   if (!player.locked || !stats.alive) return;
@@ -230,6 +234,19 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyT') {
     const scale = timeSystem.toggleSpeed();
     toast(`時間流速 x${scale}`);
+    return;
+  }
+  // 開車中:只吃 E(下車)/R(加油),其餘按鍵不作用(M8c)
+  if (vehicles.driving) {
+    if (e.code === 'KeyE') {
+      toast(vehicles.exitVehicle(player));
+      vehicleEl.classList.add('hidden');
+      combat.viewmodel.visible = true;
+      updateQuickbar();
+    } else if (e.code === 'KeyR') {
+      const msg = vehicles.refuel(inventory);
+      if (msg) toast(msg);
+    }
     return;
   }
   if (e.code === 'KeyK') {
@@ -248,9 +265,17 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyE') {
-    const sel = findInteraction(player, inventory, enemies, buildings);
+    const sel = findInteraction(player, inventory, enemies, buildings, vehicles);
     if (!sel) return;
     if (sel.kind === 'door') { buildings.toggleDoor(sel.b); return; }
+    if (sel.kind === 'vehicle' || sel.kind === 'carwreck') {
+      const res = vehicles.interact(sel, inventory, player, stats);
+      if (res.msg) toast(res.msg);
+      if (res.xp) gainXp(res.xp);
+      if (vehicles.driving) combat.viewmodel.visible = false; // 第三人稱視角藏起手上武器
+      updateQuickbar();
+      return;
+    }
     if (sel.kind === 'chest') { chestRef = sel.b; setPanel('chest'); return; }
     if (sel.kind === 'bed') { trySleep(sel.b); return; }
     const msg = doInteract(sel, inventory, stats);
@@ -318,7 +343,7 @@ addEventListener('keydown', (e) => {
 
 // 滑鼠左鍵:建造模式 = 放置,平時 = 攻擊(規格第 8 章)
 addEventListener('mousedown', (e) => {
-  if (!player.locked || !stats.alive || panelMode) return;
+  if (!player.locked || !stats.alive || panelMode || vehicles.driving) return;
   if (e.button === 0) {
     if (buildings.placing) {
       const msg = buildings.tryPlace(inventory);
@@ -382,7 +407,7 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -457,6 +482,11 @@ let deathShown = false;
 function showDeath() {
   deathShown = true;
   document.exitPointerLock();
+  if (vehicles.driving) { // 死在車上:先下車,重生才不會卡在駕駛狀態
+    vehicles.exitVehicle(player);
+    vehicleEl.classList.add('hidden');
+    combat.viewmodel.visible = true;
+  }
   buildings.cancelPlacing();
   panelMode = null;
   deathEl.querySelector('.cause').textContent = `死因:${stats.deathCause}`;
@@ -492,6 +522,16 @@ function loop() {
   }
 
   player.update(dt);
+  vehicles.update(dt, {
+    player, stats, enemies, camera, now: elapsed,
+    onRam: (killed, zb) => {
+      hitmark(killed);
+      if (killed) {
+        toast(`💥 撞飛了${zb.def.name}!`);
+        gainXp(zb.def.xp || 10);
+      }
+    },
+  });
   stats.update(dt, dt * timeSystem.hoursPerRealSecond);
   timeSystem.update(dt, player.position);
   enemies.update(dt, player, stats, timeSystem.nightFactor, elapsed, buildings);
@@ -501,19 +541,26 @@ function loop() {
   updateCampfires(elapsed);
   updateStatsHud();
 
-  // 互動提示(每幀,便宜);建造模式改顯示放置說明
+  // 互動提示(每幀,便宜);建造模式改顯示放置說明;開車改顯示駕駛 HUD
   if (player.locked && stats.alive) {
-    if (buildings.placing) {
+    if (vehicles.driving) {
+      const fuelHint = vehicles.driving.def.fuelMax > 0 ? ` · <b>R</b> 加油(⛽×${inventory.count('fuel')})` : '';
+      promptEl.classList.remove('hidden');
+      promptEl.innerHTML = `<b>E</b> 下車${fuelHint}`;
+      vehicleEl.classList.remove('hidden');
+      vehicleEl.textContent = vehicles.hudText();
+    } else if (buildings.placing) {
       promptEl.classList.remove('hidden');
       promptEl.innerHTML = `<b>左鍵</b> 放置${buildings.placing.name}(${costText(buildings.placing)}) · <b>B</b> 取消`;
     } else {
-      const sel = findInteraction(player, inventory, enemies, buildings);
+      const sel = findInteraction(player, inventory, enemies, buildings, vehicles);
       promptEl.classList.toggle('hidden', !sel);
       if (sel) promptEl.innerHTML = `<b>E</b> ${sel.label}`;
     }
   } else {
     promptEl.classList.add('hidden');
   }
+  if (!vehicles.driving) vehicleEl.classList.add('hidden');
 
   if (!stats.alive && !deathShown) showDeath();
 

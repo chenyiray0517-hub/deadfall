@@ -92,6 +92,13 @@
     background: rgba(6,8,4,.6); border: 1px solid rgba(51,56,43,.9);
     padding: 8px 14px;
   }
+  /* ── 駕駛資訊(M8c)── */
+  #vehicle {
+    position: absolute; right: 14px; bottom: 64px;
+    font-size: 13px; color: #d8d4c2;
+    background: rgba(6,8,4,.6); border: 1px solid rgba(51,56,43,.9);
+    padding: 8px 14px;
+  }
   #hitmark {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     font-size: 18px; font-weight: bold; color: #e5a13c;
@@ -215,6 +222,7 @@
   <div id="crosshair" class="hidden"></div>
   <div id="hitmark" class="hidden">✕</div>
   <div id="weapon" class="hidden"></div>
+  <div id="vehicle" class="hidden"></div>
   <div id="stats" class="hidden">
     <div class="stat"><span class="ico">❤</span><div class="bar" id="bar-hp"><i></i></div></div>
     <div class="stat"><span class="ico">🍖</span><div class="bar" id="bar-hunger"><i></i></div></div>
@@ -242,6 +250,7 @@
   <div class="keys">
     <b>WASD</b> 移動　<b>Shift</b> 奔跑　<b>Space</b> 跳躍　<b>Ctrl</b> 蹲伏（潛行）　<b>滑鼠左鍵</b> 攻擊<br>
     <b>E</b> 互動　<b>Tab</b> 背包/製作　<b>B</b> 建造　<b>K</b> 技能樹　<b>1-8</b> 快捷欄（武器=裝備、物品=使用）　<b>T</b> 時間加速<br>
+    路邊的廢車能拆出汽油與零件——修好腳踏車或皮卡就能開（<b>E</b> 上下車　<b>R</b> 加油）<br>
     <span style="color:#c84a3c">夜裡會有屍潮襲擊——用斧頭砍樹、築牆設刺、放張床,天黑前守好你的據點。</span>
   </div>
   <div id="save-btns" class="hidden">

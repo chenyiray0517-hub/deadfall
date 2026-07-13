@@ -39,6 +39,8 @@ const CRATE_TABLE = [
   { id: 'ammo9', w: 10 }, { id: 'shell', w: 5 }, { id: 'pipe', w: 6 },
   { id: 'axe', w: 2 }, { id: 'pistol', w: 3 }, { id: 'shotgun', w: 1 },
   { id: 'antibiotic', w: 3 }, { id: 'serum', w: 1 },
+  // M8c:載具零件與汽油(主要來源是拆廢棄車,這裡是保底)
+  { id: 'tire', w: 3 }, { id: 'battery', w: 2 }, { id: 'engine', w: 1 }, { id: 'fuel', w: 3 },
 ];
 const TRASH_TABLE = [
   { id: 'cloth', w: 40 }, { id: 'scrap', w: 40 }, { id: 'canned', w: 20 },

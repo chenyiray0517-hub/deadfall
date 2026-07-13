@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const V = await import('./src/systems/Vehicles.js');
+  const Z = await import('./src/entities/Zombies.js');
+  const THREE = await import('./src/lib/three.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const mgr = new V.VehicleManager(fakeScene);
+
+  // ── 資料 ──
+  test('載具類型資料齊全', ['bike', 'pickup'].every((t) => {
+    const d = V.VEHICLE_TYPES[t];
+    return d && d.needs && d.maxSpeed > 0 && d.hp > 0;
+  }));
+  test('零件物品存在', ['engine', 'tire', 'battery', 'fuel'].every((id) => ITEMS[id]));
+  test('腳踏車不吃油', V.VEHICLE_TYPES.bike.fuelMax === 0 && V.VEHICLE_TYPES.bike.noise === 0);
+  test('載具生成', mgr.vehicles.length >= 3, `n=${mgr.vehicles.length}`);
+  test('廢棄車搜刮點', mgr.carSpots.length > 0, `n=${mgr.carSpots.length}`);
+
+  const pickup = mgr.vehicles.find((v) => v.type === 'pickup');
+  const bike = mgr.vehicles.find((v) => v.type === 'bike');
+  const fakePlayer = { position: new THREE.Vector3(), keys: {}, yaw: 0, driving: null };
+  const fakeStats = { activity: {} };
+
+  // ── 修理流程 ──
+  const near = { x: pickup.x + 1, z: pickup.z + 1 };
+  let sel = mgr.findInteraction(near);
+  test('未修顯示修理', sel && sel.kind === 'vehicle' && sel.label.includes('修理'), sel?.label);
+
+  const inv = new Inventory();
+  inv.add('tire', 2);
+  let res = mgr.interact(sel, inv, fakePlayer, fakeStats);
+  test('零件分次安裝', !pickup.repaired && res.msg.includes('還缺') && inv.count('tire') === 0, res.msg);
+  inv.add('engine', 1); inv.add('battery', 1); inv.add('scrap', 5);
+  res = mgr.interact(mgr.findInteraction(near), inv, fakePlayer, fakeStats);
+  test('湊齊零件修好', pickup.repaired && pickup.hp === pickup.def.hp && res.xp === 20, res.msg);
+  test('修好只吃需要量', inv.count('scrap') === 1);
+
+  // ── 拆廢棄車 ──
+  const spot = mgr.carSpots[0];
+  const inv2 = new Inventory();
+  res = mgr.salvageCar(spot, inv2);
+  test('拆車得汽油', spot.taken && inv2.count('fuel') >= 1 && res.msg.includes('汽油'), res.msg);
+  test('每輛只拆一次', (() => {
+    const again = mgr.findInteraction({ x: spot.x, z: spot.z });
+    return !(again && again.kind === 'carwreck' && again.spot === spot);
+  })());
+
+  // ── 上車與加油 ──
+  res = mgr.enterVehicle(pickup, fakePlayer, fakeStats);
+  test('上車', mgr.driving === pickup && fakePlayer.driving === pickup, res.msg);
+  const invF = new Inventory();
+  test('沒油桶不能加', mgr.refuel(invF).includes('沒有'));
+  invF.add('fuel', 10);
+  mgr.refuel(invF);
+  test('加一桶油', pickup.fuel === V.FUEL_PER_CAN && invF.count('fuel') === 9);
+  pickup.fuel = pickup.def.fuelMax - 1;
+  mgr.refuel(invF);
+  test('油箱有上限', pickup.fuel === pickup.def.fuelMax);
+  test('滿了不再吃桶', mgr.refuel(invF).includes('已滿') && invF.count('fuel') === 8);
+
+  // ── 駕駛物理(搬到出生點空地測)──
+  pickup.x = T.SPAWN.x; pickup.z = T.SPAWN.z; pickup.heading = 0;
+  pickup.syncBox();
+  fakePlayer.keys = { KeyW: true };
+  const fuel0 = pickup.fuel;
+  const z0 = pickup.z;
+  for (let i = 0; i < 60; i++) mgr.update(1 / 60, { player: fakePlayer, stats: fakeStats, now: i / 60 });
+  test('油門前進', pickup.speed > 3 && pickup.z < z0 - 1, `v=${pickup.speed.toFixed(1)} dz=${(pickup.z - z0).toFixed(1)}`);
+  test('行駛耗油', pickup.fuel < fuel0, `${fuel0} → ${pickup.fuel.toFixed(1)}`);
+  test('引擎有噪音', pickup.noiseNow === pickup.def.noise);
+  test('玩家跟著車走', Math.abs(fakePlayer.position.z - pickup.z) < 0.01);
+
+  pickup.fuel = 0;
+  pickup.speed = 0;
+  for (let i = 0; i < 30; i++) mgr.update(1 / 60, { player: fakePlayer, stats: fakeStats, now: 2 + i / 60 });
+  test('沒油催不動', pickup.speed === 0 && pickup.noiseNow === 0);
+
+  // ── 衝撞感染者 ──
+  const enemies = new Z.EnemyManager(fakeScene);
+  pickup.fuel = 20;
+  pickup.speed = 12;
+  pickup.heading = 0;
+  const zb = enemies.zombies[0];
+  zb.pos.set(pickup.x, 0, pickup.z - 2.1);
+  const zhp = zb.hp;
+  const hpV = pickup.hp;
+  let rammed = null;
+  mgr.update(1 / 60, { player: fakePlayer, stats: fakeStats, enemies, now: 5, onRam: (k, z2) => { rammed = z2; } });
+  test('衝撞感染者', rammed === zb && (zb.hp < zhp || !zb.alive), `hp ${zhp}→${zb.alive ? zb.hp : '死亡'}`);
+  test('衝撞磨車體', pickup.hp === hpV - 2);
+
+  // ── 攻擊攔截 ──
+  const hpBefore = pickup.hp;
+  test('開車時攻擊打車體', mgr.interceptAttack(10) === true && pickup.hp === hpBefore - 10);
+  pickup.hp = 0;
+  test('拋錨後咬得到人', mgr.interceptAttack(10) === false);
+  const selBroken = mgr.findInteraction({ x: pickup.x, z: pickup.z });
+  test('拋錨顯示修復車體', selBroken.label.includes('車體'), selBroken.label);
+  const inv3 = new Inventory();
+  inv3.add('scrap', 3);
+  res = mgr.fixBody(pickup, inv3);
+  test('廢金屬修車體', pickup.hp === Math.round(pickup.def.hp * 0.5) && inv3.count('scrap') === 0, res.msg);
+
+  // ── 下車 ──
+  mgr.exitVehicle(fakePlayer);
+  test('下車', mgr.driving === null && fakePlayer.driving === null);
+
+  // ── 存讀檔 ──
+  bike.setRepaired();
+  const data = mgr.serialize();
+  const mgr2 = new V.VehicleManager(fakeScene);
+  mgr2.loadFrom(data);
+  const p2 = mgr2.vehicles[mgr.vehicles.indexOf(pickup)];
+  const b2 = mgr2.vehicles[mgr.vehicles.indexOf(bike)];
+  test('存讀:皮卡狀態還原', p2.repaired && Math.abs(p2.fuel - pickup.fuel) < 0.2 &&
+    Math.abs(p2.hp - pickup.hp) < 0.2 && Math.abs(p2.x - pickup.x) < 0.2);
+  test('存讀:腳踏車修好', b2.repaired && b2.hp === bike.def.hp);
+  test('存讀:廢棄車已拆', mgr2.carSpots[0].taken === true);
+  const mgr3 = new V.VehicleManager(fakeScene);
+  mgr3.loadFrom(null);
+  test('舊檔無載具相容', !mgr3.vehicles[0].repaired);
+
+  out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
+} catch (err) {
+  out.push('ERROR ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>
+</body></html>

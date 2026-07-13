@@ -92,8 +92,8 @@ export class Combat {
       bestD = d;
     }
     if (!best) {
-      // 揮空:消防斧可以砍樹取木柴(規格 6.4/6.7 砍樹兼用)
-      if (this.equipped === 'axe' && this.chopTree(p, fx, fz)) this.wearMelee(def);
+      // 揮空:斧頭(自製斧/消防斧)可以砍樹取木柴(規格 6.4/6.7 砍樹兼用)
+      if ((this.equipped === 'axe' || this.equipped === 'handaxe') && this.chopTree(p, fx, fz)) this.wearMelee(def);
       return;
     }
     const dmg = Math.round(def.dmg * (this.skills?.meleeMult() ?? 1)); // 🪓 近戰專精
@@ -213,8 +213,8 @@ export class Combat {
       handle.rotation.x = -0.5; // 斜握
       handle.position.set(0, 0.05, -0.15);
       grip.add(handle);
-      if (this.equipped === 'axe') {
-        const head = box(0.04, 0.2, 0.14, '#8a2f28');
+      if (this.equipped === 'axe' || this.equipped === 'handaxe') {
+        const head = box(0.04, 0.2, 0.14, this.equipped === 'axe' ? '#8a2f28' : '#6e6a63');
         head.rotation.x = -0.5;
         head.position.set(0, 0.24, -0.36);
         grip.add(head);

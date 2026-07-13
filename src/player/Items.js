@@ -81,6 +81,10 @@ export const ITEMS = {
     name: '鐵管', icon: '🔧', weapon: 'melee',
     dmg: 25, cd: 0.8, stam: 10, range: 2.2, dur: 60, noise: 8,
   },
+  handaxe: {
+    name: '自製斧', icon: '🪓', weapon: 'melee',
+    dmg: 30, cd: 1.0, stam: 12, range: 2.4, dur: 120, noise: 8,
+  },
   axe: {
     name: '消防斧', icon: '🪓', weapon: 'melee',
     dmg: 45, cd: 1.1, stam: 15, range: 2.6, dur: 80, noise: 8,
@@ -102,6 +106,11 @@ export const ITEMS = {
   wood: { name: '木柴', icon: '🪵' },
   scrap: { name: '廢金屬', icon: '⚙️' },
   arrow: { name: '木箭', icon: '➶' },
+  // ── 載具零件與燃料(M8c,規格 7.5)──
+  engine: { name: '引擎零件', icon: '🔩' },
+  tire: { name: '輪胎', icon: '🛞' },
+  battery: { name: '電瓶', icon: '🔋' },
+  fuel: { name: '汽油桶', icon: '⛽' },
   ammo9: { name: '9mm 彈', icon: '•' },
   shell: { name: '霰彈', icon: '🔴' },
 };
@@ -112,7 +121,7 @@ export const QUICKBAR_PRIORITY = [
 ];
 
 // 武器在快捷欄的排序(數字鍵 = 裝備/收起)
-export const WEAPON_ORDER = ['bat', 'pipe', 'axe', 'bow', 'pistol', 'shotgun'];
+export const WEAPON_ORDER = ['bat', 'pipe', 'handaxe', 'axe', 'bow', 'pistol', 'shotgun'];
 
 // 快捷欄動態組成:持有的武器優先,再來是消耗品,最多 8 格
 export function quickbarIds(inv) {
