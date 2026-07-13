@@ -67,7 +67,8 @@ export class Combat {
   }
 
   melee(def, now) {
-    if (!this.stats.trySpendStamina(def.stam)) {
+    const stam = Math.round(def.stam * (this.skills?.meleeStamMult() ?? 1)); // 🗡 近戰熟練省體力
+    if (!this.stats.trySpendStamina(stam)) {
       this.toast('喘不過氣,揮不動了');
       return;
     }
@@ -98,6 +99,7 @@ export class Combat {
     }
     const dmg = Math.round(def.dmg * (this.skills?.meleeMult() ?? 1)); // 🪓 近戰專精
     const killed = best.takeDamage(dmg, p, this.enemies, now);
+    this.skills?.addProf('melee', 1); // 打中才算熟練(規格 7.7 用進廢退)
     this.onHit(killed, best);
     this.wearMelee(def);
   }
@@ -141,7 +143,10 @@ export class Combat {
       return;
     }
     this.inventory.remove(def.ammo, 1);
-    this.cd = def.cd;
+    const isGun = def.ammo !== 'arrow';
+    // 🔫 槍械熟練:冷卻縮短(規格「後座力下降」的等效);開槍就算用量,弓不算
+    this.cd = isGun ? def.cd * (this.skills?.gunCdMult() ?? 1) : def.cd;
+    if (isGun) this.skills?.addProf('gun', 1);
     this.startAnim('shoot');
     const p = this.player.position;
     if (def.noise) {

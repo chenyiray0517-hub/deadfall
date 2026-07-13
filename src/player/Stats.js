@@ -103,6 +103,7 @@ export class Stats {
 
     // ── 體力(現實秒,規格 3.4)──
     if (running && moving) {
+      this.skills?.addProf('run', dt); // 🏃 跑步熟練(規格 7.7 用進廢退)
       // 奔跑 -5/秒;口渴 < 25% 時體力消耗 +30%
       const drainMult = this.thirst < 25 ? 1.3 : 1;
       this.stamina -= 5 * drainMult * dt;

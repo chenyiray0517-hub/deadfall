@@ -1,8 +1,9 @@
-// 技能與成長系統(規格 7.7 的「技能點」軌;熟練度軌與社交分支等 NPC 做了再加)
+// 技能與成長系統(規格 7.7「用進廢退 + 技能點雙軌」;社交分支等 NPC 做了再加)
 // 純邏輯、不 import three,可直接用 node 跑模擬測試
 //
-// XP 來源(main.js 呼叫 addXp):擊殺(依感染者 TYPES.xp)/搜刮/採集/製作/建造/每存活一天
-// 升一級 +1 技能點;K 鍵開技能樹加點
+// 技能點軌:XP 來源(main.js 呼叫 addXp)= 擊殺(依感染者 TYPES.xp)/搜刮/採集/製作/建造/每存活一天,
+//          升一級 +1 技能點;K 鍵開技能樹加點
+// 熟練度軌:做什麼練什麼,全自動不吃點數(跑步/烹飪/槍械/近戰),各系統呼叫 addProf 累積用量
 
 export const SKILL_DEFS = [
   // ── 生存 ──
@@ -19,12 +20,23 @@ export const SKILL_DEFS = [
   { id: 'medic',    branch: '製作', icon: '🩹', name: '急救專精', max: 1, desc: () => '繃帶回復 15 → 25 HP' },
 ];
 
+// 熟練度軌(規格 7.7:常跑步→體力上限、常做菜→烹飪回復、常用槍→後座力;近戰是主要戰鬥手段,補一軌)
+// steps = 每級需要的「用量」增量(累計),最多 Lv5;unit 只給 UI 顯示
+export const PROF_DEFS = [
+  { id: 'run',   icon: '🏃', name: '跑步', unit: '秒',   steps: [60, 120, 180, 240, 300], desc: (lv) => `體力上限 +${4 * lv}` },
+  { id: 'cook',  icon: '🍳', name: '烹飪', unit: '次',   steps: [2, 4, 6, 9, 12],         desc: (lv) => `烹飪品效果 +${10 * lv}%` },
+  { id: 'gun',   icon: '🔫', name: '槍械', unit: '發',   steps: [6, 10, 14, 18, 22],      desc: (lv) => `槍械冷卻 -${5 * lv}%` },
+  { id: 'melee', icon: '🗡', name: '近戰', unit: '次命中', steps: [10, 18, 26, 34, 42],   desc: (lv) => `近戰體力消耗 -${5 * lv}%` },
+];
+
 export class Skills {
   constructor() {
     this.xp = 0;      // 目前等級內累積的 XP
     this.level = 1;
     this.points = 0;  // 未花費的技能點
     this.lv = {};     // {skillId: 已升等級}
+    this.profUse = {}; // {profId: 累計用量}(等級由 profLevel 從門檻推算)
+    this.onProf = null; // 熟練度升級通知(main 掛 toast;node 測試不用掛)
   }
 
   // 升到下一級需要的 XP(60、90、120……越後面越慢)
@@ -64,8 +76,50 @@ export class Skills {
     return `${def.icon} ${def.name} Lv${this.lv[id]}:${def.desc(this.lv[id])}`;
   }
 
+  // ── 熟練度軌 ──
+
+  // 目前等級(0~5):用累計用量對門檻推算
+  profLevel(id) {
+    const def = PROF_DEFS.find((p) => p.id === id);
+    if (!def) return 0;
+    let used = this.profUse[id] || 0;
+    let lv = 0;
+    for (const need of def.steps) {
+      if (used < need) break;
+      used -= need;
+      lv++;
+    }
+    return lv;
+  }
+
+  // 目前級內進度 {cur, need};滿級回傳 null
+  profProgress(id) {
+    const def = PROF_DEFS.find((p) => p.id === id);
+    if (!def) return null;
+    let used = this.profUse[id] || 0;
+    for (const need of def.steps) {
+      if (used < need) return { cur: used, need };
+      used -= need;
+    }
+    return null; // 滿級
+  }
+
+  // 累積用量;升級時經由 onProf 通知(回傳這次是否升級)
+  addProf(id, n) {
+    if (n <= 0) return false;
+    const before = this.profLevel(id);
+    this.profUse[id] = (this.profUse[id] || 0) + n;
+    const after = this.profLevel(id);
+    if (after > before) {
+      const def = PROF_DEFS.find((p) => p.id === id);
+      this.onProf?.(`${def.icon} ${def.name}熟練 Lv${after}:${def.desc(after)}`);
+      return true;
+    }
+    return false;
+  }
+
   // ── 效果查詢(各系統呼叫;沒學 = 原值)──
-  staminaBonus() { return 15 * this.levelOf('fitness'); }          // Stats.staminaMax
+  staminaBonus() { return 15 * this.levelOf('fitness') + 4 * this.profLevel('run'); } // Stats.staminaMax
   noiseMult()    { return 1 - 0.25 * this.levelOf('lightfoot'); }  // Player.noiseRadius
   bonusLootChance() { return 0.35 * this.levelOf('forager'); }     // Interaction 搜刮
   meleeMult()    { return 1 + 0.2 * this.levelOf('melee'); }       // Combat.melee
@@ -75,10 +129,13 @@ export class Skills {
   costMult()     { return this.levelOf('artisan') ? 0.8 : 1; }     // Crafting/Building 材料
   buildHpMult()  { return this.levelOf('builder') ? 1.5 : 1; }     // Buildings.place
   bandageBonus() { return this.levelOf('medic') ? 10 : 0; }        // Items bandage
+  cookMult()     { return 1 + 0.1 * this.profLevel('cook'); }      // Items cooked/boiled
+  gunCdMult()    { return 1 - 0.05 * this.profLevel('gun'); }      // Combat.shoot 冷卻(槍,弓不算)
+  meleeStamMult() { return 1 - 0.05 * this.profLevel('melee'); }   // Combat.melee 體力消耗
 
   // 存讀檔
   serialize() {
-    return { xp: this.xp, level: this.level, points: this.points, lv: { ...this.lv } };
+    return { xp: this.xp, level: this.level, points: this.points, lv: { ...this.lv }, prof: { ...this.profUse } };
   }
 
   loadFrom(data) {
@@ -87,6 +144,7 @@ export class Skills {
     this.level = data.level || 1;
     this.points = data.points || 0;
     this.lv = { ...(data.lv || {}) };
+    this.profUse = { ...(data.prof || {}) }; // 舊檔沒 prof = 從零開始
   }
 }
 

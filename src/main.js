@@ -5,7 +5,7 @@ import { spawnLoot } from './world/LootSpawner.js';
 import { TimeSystem } from './core/TimeSystem.js';
 import { Player } from './player/Player.js';
 import { Stats } from './player/Stats.js';
-import { Skills, SKILL_DEFS, XP } from './player/Skills.js';
+import { Skills, SKILL_DEFS, PROF_DEFS, XP } from './player/Skills.js';
 import { Inventory, ITEMS, quickbarIds } from './player/Items.js';
 import { RECIPES, costText, canCraft, craft, isNearFire, updateCampfires } from './systems/Crafting.js';
 import { findInteraction, doInteract } from './systems/Interaction.js';
@@ -34,6 +34,7 @@ const timeSystem = new TimeSystem(scene);
 const stats = new Stats();
 const skills = new Skills();
 stats.skills = skills; // Items/Player/Stats 內部經由 stats 取用技能加成
+skills.onProf = (msg) => toast(`⬆ ${msg}`); // 熟練度升級提示(規格 7.7 用進廢退軌)
 const inventory = new Inventory();
 const player = new Player(camera, renderer.domElement, stats);
 const enemies = new EnemyManager(scene);
@@ -178,9 +179,21 @@ function renderSkillsPanel() {
     const state = maxed ? '<span style="color:#8a9a6b">已滿級</span>' : s.desc(lv + 1);
     return `${header}<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${s.icon} ${s.name} Lv${lv}/${s.max} <span class="req">${state}</span></div>`;
   }).join('');
+  // 熟練度軌:做什麼練什麼,不吃點數(規格 7.7 雙軌的另一半)
+  const profRows = PROF_DEFS.map((p) => {
+    const lv = skills.profLevel(p.id);
+    const prog = skills.profProgress(p.id);
+    const state = prog
+      ? `${p.desc(lv + 1)}(${Math.floor(prog.cur)}/${prog.need} ${p.unit})`
+      : '<span style="color:#8a9a6b">已滿級</span>';
+    const now = lv > 0 ? ` <span style="color:#8a9a6b">${p.desc(lv)}</span>` : '';
+    return `<div class="recipe no">${p.icon} ${p.name} Lv${lv}/5${now} <span class="req">下一級:${state}</span></div>`;
+  }).join('');
   panelEl.innerHTML = `<h2>技能樹</h2>
     <div class="mats">Lv${skills.level} · XP ${Math.floor(skills.xp)}/${skills.xpNeed()} · 技能點 <span style="color:#e5a13c">${skills.points}</span></div>
-    ${rows}<div class="hint">按數字鍵加點(每點 1 技能點) · K/Tab 關閉</div>`;
+    ${rows}
+    <div class="mats" style="margin:10px 0 2px">── 熟練度(做什麼練什麼)──</div>${profRows}
+    <div class="hint">按數字鍵加點(每點 1 技能點) · K/Tab 關閉</div>`;
 }
 
 function renderChestPanel() {
@@ -303,7 +316,10 @@ addEventListener('keydown', (e) => {
           skills,
         });
         toast(msg || '材料不足或需要靠近營火');
-        if (msg) gainXp(XP.craft);
+        if (msg) {
+          gainXp(XP.craft);
+          if (recipe.needFire) skills.addProf('cook', 1); // 🍳 營火烹飪練熟練
+        }
         renderCraftPanel();
       }
     } else if (panelMode === 'skills') {

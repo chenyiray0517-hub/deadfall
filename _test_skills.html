@@ -4,7 +4,7 @@
 const out = [];
 const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
 try {
-  const { Skills, SKILL_DEFS, XP } = await import('./src/player/Skills.js');
+  const { Skills, SKILL_DEFS, PROF_DEFS, XP } = await import('./src/player/Skills.js');
   const { Stats } = await import('./src/player/Stats.js');
   const { Inventory } = await import('./src/player/Items.js');
   const C = await import('./src/systems/Crafting.js');
@@ -99,15 +99,64 @@ try {
   test('無技能買不起', bld.canAfford(bed, inv4) === false);
   test('建築師耐久 x1.5', full.buildHpMult() === 1.5 && new Skills().buildHpMult() === 1);
 
+  // ── 熟練度軌(規格 7.7 用進廢退)──
+  const pr = new Skills();
+  test('熟練度初始 Lv0', PROF_DEFS.every((p) => pr.profLevel(p.id) === 0));
+  test('熟練 desc 全部可呼叫', PROF_DEFS.every((p) => typeof p.desc(1) === 'string' && typeof p.desc(5) === 'string'));
+  let notified = [];
+  pr.onProf = (m) => notified.push(m);
+  test('addProf 未達門檻不升', pr.addProf('run', 59) === false && pr.profLevel('run') === 0 && notified.length === 0);
+  test('run 滿 60 秒升 Lv1 且通知', pr.addProf('run', 1) === true && pr.profLevel('run') === 1 && notified.length === 1, notified[0]);
+  test('progress 級內歸零重算', pr.profProgress('run').cur === 0 && pr.profProgress('run').need === 120);
+  pr.addProf('run', 60 + 120 + 180 + 240 + 300); // 遠超全部門檻
+  test('run 滿級 Lv5、progress null', pr.profLevel('run') === 5 && pr.profProgress('run') === null);
+  test('跑步 Lv5 體力上限 +20', pr.staminaBonus() === 20);
+  test('熟練與技能疊加(強健+跑步=50)', (() => { const s = new Skills(); s.points = 2; s.up('fitness'); s.up('fitness');
+    s.addProf('run', 9999); return s.staminaBonus() === 30 + 20; })());
+  for (let i = 0; i < 33; i++) pr.addProf('cook', 1);
+  test('cook 33 次滿級,烹飪 +50%', pr.profLevel('cook') === 5 && Math.abs(pr.cookMult() - 1.5) < 1e-9);
+  pr.addProf('gun', 70);
+  test('gun 70 發滿級,冷卻 x0.75', pr.profLevel('gun') === 5 && Math.abs(pr.gunCdMult() - 0.75) < 1e-9);
+  pr.addProf('melee', 130);
+  test('melee 130 中滿級,體力 x0.75', pr.profLevel('melee') === 5 && Math.abs(pr.meleeStamMult() - 0.75) < 1e-9);
+  test('無熟練 = 原值', (() => { const s = new Skills();
+    return s.cookMult() === 1 && s.gunCdMult() === 1 && s.meleeStamMult() === 1; })());
+
+  // ── 熟練度掛鉤:Stats 跑步累積、烹飪品回復量 ──
+  const st3 = new Stats();
+  st3.skills = new Skills();
+  st3.activity = { running: true, moving: true };
+  for (let i = 0; i < 70; i++) st3.update(1, 0); // 跑 70 現實秒(gameHourDt=0 避免飢渴干擾)
+  test('奔跑累積 run 熟練', st3.skills.profLevel('run') === 1, `use=${st3.skills.profUse.run}`);
+  const st4 = new Stats();
+  st4.skills = pr; // cook Lv5
+  st4.hunger = 20; st4.hp = 50;
+  const inv5 = new Inventory();
+  inv5.add('cooked', 1); inv5.add('boiled', 1);
+  msg = inv5.use('cooked', st4);
+  test('烤肉 +50%(53 飽食 8 HP)', st4.hunger === 73 && st4.hp === 58, msg);
+  st4.thirst = 10;
+  msg = inv5.use('boiled', st4);
+  test('煮沸水 +50%(+60 口渴)', st4.thirst === 70, msg);
+  test('無熟練烤肉原值', (() => { const s = new Stats(); s.hunger = 20; s.hp = 50;
+    const v = new Inventory(); v.add('cooked', 1); v.use('cooked', s); return s.hunger === 55 && s.hp === 55; })());
+
   // ── 存讀檔 ──
   const data = full.serialize();
   const back = new Skills();
   back.loadFrom(JSON.parse(JSON.stringify(data)));
   test('serialize/loadFrom 還原', back.level === full.level && back.points === full.points &&
     SKILL_DEFS.every((d) => back.levelOf(d.id) === full.levelOf(d.id)));
+  const prData = pr.serialize();
+  const prBack = new Skills();
+  prBack.loadFrom(JSON.parse(JSON.stringify(prData)));
+  test('熟練度存讀還原', PROF_DEFS.every((p) => prBack.profLevel(p.id) === pr.profLevel(p.id)));
   const fresh = new Skills();
   fresh.loadFrom(null);
   test('舊檔無 skills 不爆炸', fresh.level === 1 && fresh.points === 0);
+  const oldData = new Skills();
+  oldData.loadFrom({ xp: 5, level: 2, points: 1, lv: { melee: 1 } }); // M8b 舊檔沒 prof 欄位
+  test('舊檔無 prof 從零開始', oldData.profLevel('melee') === 0 && oldData.levelOf('melee') === 1);
 
   test('XP 常數齊全', XP.loot > 0 && XP.gather > 0 && XP.craft > 0 && XP.build > 0 && XP.day > 0 && XP.corpse > 0);
   const Z = await import('./src/entities/Zombies.js');

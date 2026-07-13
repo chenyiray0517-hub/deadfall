@@ -31,7 +31,12 @@ export const ITEMS = {
   },
   boiled: {
     name: '煮沸水', icon: '♨️', consumable: true,
-    use(s, inv) { s.thirst = clamp(s.thirst + 40); inv.add('empty', 1); return '+40 口渴'; },
+    use(s, inv) {
+      const n = Math.round(40 * (s.skills?.cookMult() ?? 1)); // 🍳 烹飪熟練
+      s.thirst = clamp(s.thirst + n);
+      inv.add('empty', 1);
+      return `+${n} 口渴`;
+    },
   },
   bandage: {
     name: '繃帶', icon: '🩹', consumable: true,
@@ -55,7 +60,14 @@ export const ITEMS = {
   },
   cooked: {
     name: '烤肉', icon: '🍖', consumable: true,
-    use(s) { s.hunger = clamp(s.hunger + 35); s.hp = clamp(s.hp + 5); return '+35 飽食 +5 HP'; },
+    use(s) {
+      const m = s.skills?.cookMult() ?? 1; // 🍳 烹飪熟練(規格:常做菜→烹飪回復量+)
+      const food = Math.round(35 * m);
+      const hp = Math.round(5 * m);
+      s.hunger = clamp(s.hunger + food);
+      s.hp = clamp(s.hp + hp);
+      return `+${food} 飽食 +${hp} HP`;
+    },
   },
   antibiotic: {
     name: '抗生素', icon: '💊', consumable: true,

@@ -27,7 +27,8 @@
 - [x] **M8a 建築室內**(2026-07-12):大樓一樓 3 種(便利商店/辦公室/公寓大廳)+ 鄉村房 3 種(小農舍/農家/工具屋),同種內部佈局固定;可搜刮家具 6 類(貨架/冰箱/櫃台/櫥櫃/衣櫃/辦公桌)各自掉落表;感染者會繞到門口追進室內;存檔的已拿物資點改座標比對
 - [x] **M8b 技能樹**(2026-07-13):XP 升級給技能點(擊殺/搜刮/採集/製作/建造/存活天數),K 鍵開三分支九技能(生存/戰鬥/製作,規格 7.7 簡化版;社交分支等 NPC),含存讀檔;順手補上「烤肉」配方(營火烹飪)
 - [x] **M8c 載具**(2026-07-13):腳踏車+皮卡(規格 7.5),沿主幹道路肩固定生成;拆廢棄車得汽油/零件 → 裝零件修車 → E 上車 WASD 駕駛(第三人稱跟車視角);皮卡可衝撞、引擎聲引怪、感染者打車體;含存讀檔
-- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支、熟練度軌也還沒做;載具的摩托車/巴士也待補)
+- [x] **M8d 熟練度軌**(2026-07-13):規格 7.7 雙軌的另一半——做什麼練什麼,不吃技能點,4 軌各 5 級:跑步(體力上限+4/級)/烹飪(烹飪品效果+10%/級)/槍械(冷卻-5%/級,「後座力下降」等效)/近戰(體力消耗-5%/級);K 面板下方顯示進度,含存讀檔(舊檔相容)
+- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支;載具的摩托車/巴士也待補)
 
 ## 架構備忘
 
@@ -92,7 +93,11 @@
   - 效果落點:staminaBonus→Stats.staminaMax(HUD 體力條改除以 staminaMax)、noiseMult→Player.noiseRadius、bonusLootChance→Interaction.forageBonus、melee/rangedMult+arrowRecover→Combat、biteMult→Stats.applyBite、costMult→Crafting.costOf(製作與建造共用,-20% 向下取整至少 1)、buildHpMult→Buildings.tryPlace(只影響新建)、bandageBonus→Items bandage。
   - UI:K 鍵開技能面板(共用 #panel,panelMode 'skills'),數字鍵加點;左上 #xp 顯示等級/XP,有未花點數會亮提示。存檔加 `skills` 欄位(舊檔沒有 = 從 Lv1 開始,相容)。
   - 測試參數:`?xp=200` 給初始經驗、`?panel=skills` 直接開面板(截圖驗證 UI 用)。
-  - `_test_skills.html`:技能邏輯測試頁(36 條),headless --dump-dom 跑。
+  - `_test_skills.html`:技能+熟練度邏輯測試頁(54 條),headless --dump-dom 跑。
+- M8d 熟練度軌架構(同在 `Skills.js`,一樣純邏輯可 node 測):
+  - `PROF_DEFS`(run/cook/gun/melee,steps = 每級用量增量);Skills 只存累計用量 `profUse`,等級由 `profLevel` 從門檻推算(存讀檔只多一個 `prof` 欄位,舊檔沒有 = 從零)。
+  - 累積接點:Stats.update 奔跑秒數 → addProf('run', dt);main.js craft 成功且 `recipe.needFire` → 'cook';Combat.shoot 開槍(`ammo !== 'arrow'`,弓不算)→ 'gun';Combat.melee 打中 → 'melee'。
+  - 效果落點:staminaBonus() 疊加 +4/級、cookMult() → Items cooked/boiled、gunCdMult() → shoot 冷卻、meleeStamMult() → melee 體力。升級通知走 `skills.onProf` callback(main 掛 toast)。
 - M8c 載具架構:
   - 全在 `systems/Vehicles.js`:VEHICLE_TYPES(bike/pickup,needs 零件表+速度/油/噪音/衝撞參數)+ Vehicle + VehicleManager。固定 seed(424242)沿主幹道路肩生成 腳踏車×2(鄉村)、皮卡×2(鄉村/城市);零件物品 engine/tire/battery/fuel 在 Items.js,來源 = 拆廢棄車(`carSpots`,每輛一次)+ 補給箱低權重。
   - 駕駛:`manager.update(dt, ctx)` 做油門/轉向/油耗/碰撞(`resolveSelf` 跳過自己的 collider box)/皮卡衝撞(前方 1.7m、每隻 0.8s 判一次)/第三人稱跟車相機;每幀把 `player.position/yaw` 同步到車上(感染者追玩家座標就會追車)。載具有一顆會跟著動的 AABB collider(方形近似)。
