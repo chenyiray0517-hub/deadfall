@@ -14,6 +14,7 @@ import { Combat } from './systems/Combat.js';
 import { Buildings, BUILDABLES, sleepUntilMorning, dropHalfInventory } from './systems/Building.js';
 import { peekSave, clearSave, saveGame, loadGame } from './systems/SaveSystem.js';
 import { VehicleManager } from './systems/Vehicles.js';
+import { loadItemModels } from './lib/glb.js';
 
 // ── 基礎場景 ──
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -26,10 +27,13 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 600);
 
+// 物品 3D 模型(莓果串/罐頭/烤肉,assets/models/*.glb);載入失敗自動退回程序化外觀
+const itemModels = await loadItemModels();
+
 // 順序:先建築(登記碰撞箱)→ 地形(樹避開建築)→ 物資點(靠建築擺)→ 敵人(避開全部)
 scene.add(createStructures());
 scene.add(createTerrain());
-scene.add(spawnLoot());
+scene.add(spawnLoot(itemModels));
 const timeSystem = new TimeSystem(scene);
 const stats = new Stats();
 const skills = new Skills();
@@ -56,6 +60,42 @@ const combat = new Combat({
     }
   },
 });
+
+// 吃/喝時第一人稱手上短暫舉起物品模型(莓果/罐頭/烤肉)
+const CONSUME_POSE = {
+  berry: { scale: 0.2, rot: [0, 0, 0] },
+  canned: { scale: 0.12, rot: [0, 0.4, 0] },
+  cooked: { scale: 0.36, rot: [0.3, 1.15, 0] }, // 烤肉串斜握
+};
+const CONSUME_DUR = 0.9;
+const consumeProp = new THREE.Group();
+consumeProp.visible = false;
+camera.add(consumeProp);
+let consumeT = -1; // >= 0 表示動畫進行中
+function showConsumeFx(id) {
+  const model = itemModels?.[id];
+  const pose = CONSUME_POSE[id];
+  if (!model || !pose) return;
+  while (consumeProp.children.length) consumeProp.remove(consumeProp.children[0]);
+  const mesh = new THREE.Mesh(model.geometry, model.material);
+  mesh.scale.setScalar(pose.scale);
+  mesh.rotation.set(...pose.rot);
+  consumeProp.add(mesh);
+  consumeProp.visible = true;
+  consumeT = 0;
+}
+function updateConsumeFx(dt) {
+  if (consumeT < 0) return;
+  consumeT += dt;
+  const k = Math.min(1, consumeT / CONSUME_DUR);
+  const s = Math.sin(k * Math.PI); // 舉到嘴邊再放下
+  consumeProp.position.set(0.26 - 0.12 * s, -0.42 + 0.2 * s, -0.55 + 0.1 * s);
+  consumeProp.rotation.z = 0.15 * s;
+  if (k >= 1) {
+    consumeT = -1;
+    consumeProp.visible = false;
+  }
+}
 
 // 加 XP;升級就提示(技能樹 M8)
 function gainXp(n) {
@@ -351,7 +391,10 @@ addEventListener('keydown', (e) => {
         updateQuickbar();
       } else {
         const msg = inventory.use(id, stats);
-        if (msg) toast(`${ITEMS[id].name}:${msg}`);
+        if (msg) {
+          toast(`${ITEMS[id].name}:${msg}`);
+          showConsumeFx(id);
+        }
       }
     }
   }
@@ -412,6 +455,11 @@ if (params.has('pos')) {
 if (params.has('yaw')) player.yaw = (parseFloat(params.get('yaw')) || 0) * Math.PI / 180;
 if (params.has('xp')) skills.addXp(parseInt(params.get('xp')) || 0); // 測試技能樹用
 if (params.has('panel')) setPanel(params.get('panel')); // 直接開指定面板(截圖驗證 UI 用)
+if (params.has('prop')) { // 吃東西手持模型凍在動畫中段(截圖驗證用)
+  showConsumeFx(params.get('prop'));
+  consumeT = CONSUME_DUR * 0.5;
+  updateConsumeFx(0);
+}
 if (params.has('items')) { // ?items=cloth:4,wood:5
   for (const part of params.get('items').split(',')) {
     const [id, n] = part.split(':');
@@ -552,6 +600,7 @@ function loop() {
   timeSystem.update(dt, player.position);
   enemies.update(dt, player, stats, timeSystem.nightFactor, elapsed, buildings);
   combat.update(dt);
+  updateConsumeFx(dt);
   buildings.update(dt);
   if (buildings.placing) buildings.updateGhost(player, inventory);
   updateCampfires(elapsed);

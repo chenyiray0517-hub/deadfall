@@ -105,6 +105,11 @@
   - 互動走 `vehicles.findInteraction`(Interaction.findInteraction 第 5 參數轉呼叫),kind 'vehicle'(修理→裝零件/拋錨→修車體/可開→上車)與 'carwreck';執行在 `vehicles.interact`。
   - 存檔:載具依生成順序索引還原(seed 固定所以穩),廢棄車已拆用座標比對;舊檔沒 vehicles 欄位 = 全新未修狀態。
   - `_test_vehicles.html`:載具邏輯測試頁(32 條),headless --dump-dom 跑。
+- 物品 3D 模型(2026-07-14,Meshy AI 資產):
+  - `assets/models/*.glb`(berries/canned/cookedmeat,各 ~100KB):由 `tools/convert_model.py` 用本機 Blender headless 從 FBX 轉出——減面到 ~1500 tris、貼圖縮 512 JPEG、最大邊正規化為 1、原點在底部中心。macOS 12 上 Blender 內建 numpy 會 dlopen 失敗(缺新版 Accelerate 符號),腳本開頭 `sys.path.insert` 墊一顆 PyPI numpy(路徑見腳本;wheel 解壓即可,不用 pip)。
+  - `src/lib/glb.js`:迷你 GLB 載入器(只支援上述轉檔格式:單一 mesh/primitive、緊湊排列、內嵌貼圖)。刻意不用 three/examples 的 GLTFLoader——它 import 裸字串 'three',沒 importmap 載不了。`loadItemModels()` 回 {berry, canned, cooked},個別失敗回 null。
+  - 套用點:main.js 頂層 `await loadItemModels()` 後傳入 `spawnLoot(models)`——野果叢的果實從 3 顆紅球改成一叢一串莓果模型(**berry 迴圈的 rng 消耗次數刻意跟舊版一樣**,固定 seed 的後續生成序列才不會位移、舊存檔座標比對才有效;沒模型時退回紅球,一樣單 instance)。吃/喝 berry/canned/cooked 時手上短暫舉起模型(`showConsumeFx`,掛 camera 的 consumeProp,0.9s 舉到嘴邊再放下)。
+  - 測試:`_test_models.html`(19 條,headless --dump-dom);`?prop=canned` 把手持動畫凍在中段(截圖驗證用)。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

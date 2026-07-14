@@ -113,8 +113,8 @@ export function rollLoot(type) {
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 export function hideLoot(point) {
   if (point.type === 'berry') {
-    // 果叢留著,只藏果實
-    for (let j = 0; j < 3; j++) point.berriesMesh.setMatrixAt(point.index * 3 + j, ZERO);
+    // 果叢留著,只藏果實(一叢一個 instance)
+    point.berriesMesh.setMatrixAt(point.index, ZERO);
     point.berriesMesh.instanceMatrix.needsUpdate = true;
   } else {
     point.mesh.setMatrixAt(point.index, ZERO);
@@ -128,23 +128,28 @@ export function takeLoot(point) {
   return rollLoot(point.type);
 }
 
-export function spawnLoot() {
+export function spawnLoot(models) {
   const group = new THREE.Group();
   const rng = mulberry32(11223);
   const half = TERRAIN_SIZE / 2 - 12;
 
   // ── 野果叢(荒野採集,規格 4.2)──
+  // 果實視覺:有 3D 模型就一叢一串莓果(Meshy 資產),沒載到就退回紅色小球
   const BERRY_MAX = 26 * AREA_SCALE;
   const bushGeo = new THREE.IcosahedronGeometry(0.7, 0);
   bushGeo.scale(1, 0.75, 1);
   const bushMat = new THREE.MeshLambertMaterial({ color: '#2f4526' });
-  const berryGeo = new THREE.SphereGeometry(0.09, 6, 5);
-  const berryMat = new THREE.MeshLambertMaterial({ color: '#b03a3a' });
+  const berryModel = models?.berry;
+  const berryGeo = berryModel ? berryModel.geometry : new THREE.SphereGeometry(0.14, 6, 5);
+  const berryMat = berryModel ? berryModel.material : new THREE.MeshLambertMaterial({ color: '#b03a3a' });
   const bushes = new THREE.InstancedMesh(bushGeo, bushMat, BERRY_MAX);
-  const berries = new THREE.InstancedMesh(berryGeo, berryMat, BERRY_MAX * 3);
+  const berries = new THREE.InstancedMesh(berryGeo, berryMat, BERRY_MAX);
   bushes.castShadow = true;
 
   const m = new THREE.Matrix4();
+  const bq = new THREE.Quaternion();
+  const be = new THREE.Euler();
+  const bs = new THREE.Vector3();
   let bc = 0;
   for (let tries = 0; tries < 1200 * AREA_SCALE && bc < BERRY_MAX; tries++) {
     const x = (rng() * 2 - 1) * half;
@@ -155,16 +160,23 @@ export function spawnLoot() {
     m.makeScale(0.8 + rng() * 0.5, 0.8 + rng() * 0.4, 0.8 + rng() * 0.5);
     m.setPosition(x, y + 0.45, z);
     bushes.setMatrixAt(bc, m);
-    for (let j = 0; j < 3; j++) {
-      const a = rng() * Math.PI * 2;
-      m.makeTranslation(x + Math.cos(a) * 0.5, y + 0.6 + rng() * 0.3, z + Math.sin(a) * 0.5);
-      berries.setMatrixAt(bc * 3 + j, m);
+    // 舊版一叢 3 顆果實共消耗 6 次 rng;照樣取出以保持後續生成序列不變(存檔比對靠固定 seed)
+    const r = [rng(), rng(), rng(), rng(), rng(), rng()];
+    const a = r[0] * Math.PI * 2;
+    if (berryModel) {
+      // 莓果串半埋在果叢頂上,隨機朝向與大小
+      bq.setFromEuler(be.set(0, r[1] * Math.PI * 2, 0));
+      bs.setScalar(0.5 + r[2] * 0.15);
+      m.compose(new THREE.Vector3(x + Math.cos(a) * 0.22, y + 0.62, z + Math.sin(a) * 0.22), bq, bs);
+    } else {
+      m.makeTranslation(x + Math.cos(a) * 0.5, y + 0.6 + r[1] * 0.3, z + Math.sin(a) * 0.5);
     }
+    berries.setMatrixAt(bc, m);
     lootPoints.push({ type: 'berry', x, z, taken: false, berriesMesh: berries, index: bc });
     bc++;
   }
   bushes.count = bc;
-  berries.count = bc * 3;
+  berries.count = bc;
   group.add(bushes, berries);
 
   // ── 樹枝(荒野/鄉村地上,撿了當木柴)──

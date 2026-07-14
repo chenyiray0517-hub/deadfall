@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+// 物品 3D 模型(GLB 載入器 + 野果叢套用)測試頁:headless --dump-dom 跑
+const out = [];
+let pass = 0, fail = 0;
+const test = (name, ok, extra = '') => {
+  out.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' | ' + extra : ''}`);
+  ok ? pass++ : fail++;
+};
+try {
+  const G = await import('./src/lib/glb.js');
+
+  // 1) 三個 GLB 都要載得起來,幾何/貼圖齊全
+  const models = await G.loadItemModels();
+  for (const id of ['berry', 'canned', 'cooked']) {
+    const m = models[id];
+    const tris = m ? m.geometry.index.count / 3 : 0;
+    test(`模型 ${id} 載入`, !!m, `tris=${tris}`);
+    if (!m) continue;
+    test(`模型 ${id} 幾何屬性`, !!(m.geometry.attributes.position && m.geometry.attributes.normal && m.geometry.attributes.uv));
+    test(`模型 ${id} 面數合理`, tris > 300 && tris < 4000, `tris=${tris}`);
+    test(`模型 ${id} 貼圖`, !!m.material.map && m.material.map.flipY === false);
+    // 正規化:最大邊 = 1、底部在 y=0
+    m.geometry.computeBoundingBox();
+    const bb = m.geometry.boundingBox;
+    const size = [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z];
+    test(`模型 ${id} 尺寸正規化`, Math.abs(Math.max(...size) - 1) < 0.01 && Math.abs(bb.min.y) < 0.01,
+      `size=${size.map((v) => v.toFixed(2))} minY=${bb.min.y.toFixed(3)}`);
+  }
+
+  // 2) 野果叢套用:有模型時 berries 用模型幾何、一叢一 instance;hideLoot 藏對格
+  const S = await import('./src/world/Structures.js');
+  const T = await import('./src/world/Terrain.js');
+  const L = await import('./src/world/LootSpawner.js');
+  S.createStructures();
+  T.createTerrain();
+  L.spawnLoot(models);
+  const berryPts = L.lootPoints.filter((p) => p.type === 'berry');
+  test('野果叢有生成', berryPts.length > 0, `n=${berryPts.length}`);
+  const bp = berryPts[0];
+  test('果實用模型幾何', bp.berriesMesh.geometry === models.berry.geometry);
+  test('一叢一 instance', bp.berriesMesh.count === berryPts.length, `count=${bp.berriesMesh.count}`);
+  const mtx = new (await import('./src/lib/three.js')).Matrix4();
+  bp.berriesMesh.getMatrixAt(bp.index, mtx);
+  const before = mtx.elements[0];
+  L.hideLoot(bp);
+  bp.berriesMesh.getMatrixAt(bp.index, mtx);
+  test('hideLoot 藏果實', before !== 0 && mtx.elements[0] === 0);
+  out.push('第一個野果叢座標: ' + bp.x.toFixed(1) + ',' + bp.z.toFixed(1));
+
+  out.push(`TEST_DONE pass=${pass} fail=${fail}`);
+} catch (err) {
+  out.push('ERROR: ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script></body></html>
