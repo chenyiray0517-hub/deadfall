@@ -5,7 +5,7 @@ import { losBlocked, colliders } from '../world/Terrain.js';
 // 玩家戰鬥(M6):近戰揮擊/遠程射擊、近戰耐久、槍聲噪音、第一人稱武器模型
 // 命中判定不用 raycast 物件求交:近戰是面前扇形取最近,遠程是視線射線對感染者圓柱心的最近距離
 export class Combat {
-  constructor({ camera, player, stats, inventory, enemies, toast, isNight, onHit, skills }) {
+  constructor({ camera, player, stats, inventory, enemies, toast, isNight, onHit, skills, models }) {
     this.player = player;
     this.stats = stats;
     this.inventory = inventory;
@@ -14,6 +14,7 @@ export class Combat {
     this.isNight = isNight;
     this.onHit = onHit || (() => {});
     this.skills = skills || null; // 技能加成(近戰/遠程傷害、箭回收率)
+    this.models = models || {};   // 物品 GLB 模型(木棒/消防斧,沒有就退回方塊拼裝)
 
     this.equipped = null;   // 目前手持武器 id
     this.cd = 0;            // 攻擊冷卻
@@ -199,6 +200,7 @@ export class Combat {
     while (g.children.length) {
       const c = g.children.pop();
       c.traverse((o) => {
+        if (o.userData.shared) return; // GLB 模型的幾何/貼圖是共用的,不能 dispose
         o.geometry?.dispose();
         o.material?.dispose();
       });
@@ -213,7 +215,20 @@ export class Combat {
     grip.position.set(0.32, -0.28, -0.5); // 右下持握位
 
     const def = ITEMS[this.equipped];
-    if (def.weapon === 'melee') {
+    const glb = this.models[this.equipped];
+    if (def.weapon === 'melee' && glb) {
+      // GLB 手持模型(Euler XYZ:先轉 y 對齊長軸到 z,再 x 斜握;pos 是斜握後的局部位移)
+      const pose = {
+        bat: { scale: 0.8, rot: [0.5, Math.PI, 0], pos: [0, 0.08, -0.1] },   // 長軸在 z,翻 180° 讓粗頭朝上前方
+        axe: { scale: 0.95, rot: [-0.5, Math.PI / 2, 0], pos: [0, -0.02, -0.2] }, // 長軸在 x
+      }[this.equipped];
+      const mesh = new THREE.Mesh(glb.geometry, glb.material);
+      mesh.userData.shared = true;
+      mesh.scale.setScalar(pose.scale);
+      mesh.rotation.set(...pose.rot);
+      mesh.position.set(...pose.pos);
+      grip.add(mesh);
+    } else if (def.weapon === 'melee') {
       const handle = box(0.055, 0.055, 0.6, this.equipped === 'pipe' ? '#7d838a' : '#7a5a38');
       handle.rotation.x = -0.5; // 斜握
       handle.position.set(0, 0.05, -0.15);

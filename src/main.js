@@ -50,7 +50,7 @@ vehicles.toast = toast;
 enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
-  camera, player, stats, inventory, enemies, toast, skills,
+  camera, player, stats, inventory, enemies, toast, skills, models: itemModels,
   isNight: () => timeSystem.nightFactor,
   onHit: (killed, zb) => {
     hitmark(killed);
@@ -61,11 +61,14 @@ const combat = new Combat({
   },
 });
 
-// 吃/喝時第一人稱手上短暫舉起物品模型(莓果/罐頭/烤肉)
+// 吃/喝時第一人稱手上短暫舉起物品模型(莓果/罐頭/烤肉/水壺)
 const CONSUME_POSE = {
   berry: { scale: 0.2, rot: [0, 0, 0] },
   canned: { scale: 0.12, rot: [0, 0.4, 0] },
   cooked: { scale: 0.36, rot: [0.3, 1.15, 0] }, // 烤肉串斜握
+  bottled: { scale: 0.2, rot: [0, 0.5, 0] },    // 軍用水壺(背帶)
+  dirty: { scale: 0.18, rot: [0, 0.5, 0] },     // 軟木塞水壺
+  boiled: { scale: 0.18, rot: [0, 0.5, 0] },
 };
 const CONSUME_DUR = 0.9;
 const consumeProp = new THREE.Group();
@@ -466,6 +469,7 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
     if (ITEMS[id]) inventory.add(id, parseInt(n) || 1);
   }
 }
+if (params.has('equip')) combat.equip(params.get('equip')); // 配 ?items= 用,截圖驗證手持模型
 
 // ── 存讀檔(M7.5)──
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」

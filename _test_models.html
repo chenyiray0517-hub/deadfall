@@ -11,9 +11,9 @@ const test = (name, ok, extra = '') => {
 try {
   const G = await import('./src/lib/glb.js');
 
-  // 1) 三個 GLB 都要載得起來,幾何/貼圖齊全
+  // 1) 所有 GLB 都要載得起來,幾何/貼圖齊全
   const models = await G.loadItemModels();
-  for (const id of ['berry', 'canned', 'cooked']) {
+  for (const id of ['berry', 'canned', 'cooked', 'bat', 'axe', 'bottled', 'dirty']) {
     const m = models[id];
     const tris = m ? m.geometry.index.count / 3 : 0;
     test(`模型 ${id} 載入`, !!m, `tris=${tris}`);
@@ -28,6 +28,9 @@ try {
     test(`模型 ${id} 尺寸正規化`, Math.abs(Math.max(...size) - 1) < 0.01 && Math.abs(bb.min.y) < 0.01,
       `size=${size.map((v) => v.toFixed(2))} minY=${bb.min.y.toFixed(3)}`);
   }
+
+  // 1b) 髒水/煮沸水共用軟木塞水壺,同檔只載一次
+  test('dirty/boiled 共用模型', models.dirty && models.dirty === models.boiled);
 
   // 2) 野果叢套用:有模型時 berries 用模型幾何、一叢一 instance;hideLoot 藏對格
   const S = await import('./src/world/Structures.js');

@@ -46,12 +46,20 @@ export async function loadGLB(url) {
 }
 
 // 物品 3D 模型;個別載入失敗回 null,遊戲退回程序化外觀不會壞
+// 多個 id 可共用同一檔(髒水瓶/煮沸水共用軟木塞水壺),同檔只抓一次
 export async function loadItemModels(base = 'assets/models/') {
-  const files = { berry: 'berries.glb', canned: 'canned.glb', cooked: 'cookedmeat.glb' };
+  const files = {
+    berry: 'berries.glb', canned: 'canned.glb', cooked: 'cookedmeat.glb',
+    bat: 'bat.glb', axe: 'fireaxe.glb',
+    bottled: 'canteen.glb', dirty: 'flask.glb', boiled: 'flask.glb',
+  };
+  const cache = new Map();
   const out = {};
-  await Promise.all(Object.keys(files).map(async (id) => {
-    try { out[id] = await loadGLB(base + files[id]); }
-    catch (e) { console.warn('物品模型載入失敗:', files[id], e); out[id] = null; }
+  await Promise.all(Object.entries(files).map(async ([id, f]) => {
+    try {
+      if (!cache.has(f)) cache.set(f, loadGLB(base + f));
+      out[id] = await cache.get(f);
+    } catch (e) { console.warn('物品模型載入失敗:', f, e); out[id] = null; }
   }));
   return out;
 }
