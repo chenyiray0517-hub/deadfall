@@ -287,11 +287,6 @@ addEventListener('keydown', (e) => {
   }
   if (!player.locked || !stats.alive) return;
 
-  if (e.code === 'KeyT') {
-    const scale = timeSystem.toggleSpeed();
-    toast(`時間流速 x${scale}`);
-    return;
-  }
   // 開車中:只吃 E(下車)/R(加油),其餘按鍵不作用(M8c)
   if (vehicles.driving) {
     if (e.code === 'KeyE') {
@@ -664,7 +659,7 @@ function loop() {
     if (canSave && started && stats.alive) saveGame(saveCtx);
   }
   if (fpsTimer >= 0.5) {
-    fpsEl.textContent = `FPS ${Math.round(fpsFrames / fpsTimer)}${timeSystem.timeScale > 1 ? ' · 時間x120' : ''}`;
+    fpsEl.textContent = `FPS ${Math.round(fpsFrames / fpsTimer)}`;
     const chaser = enemies.nearestChaserDist(player.position);
     const warn = chaser < 40 ? `<br><span style="color:#c84a3c">⚠ 被追擊中!</span>` : '';
     clockEl.innerHTML = `<span class="day">第 ${timeSystem.day} 天</span><br><span class="time">${timeSystem.clockText}</span><br><span class="region">${regionName(player.position.x, player.position.z)}</span>${warn}`;

@@ -15,7 +15,7 @@
 
 ## 進度(規格書 2.3 里程碑)
 
-- [x] **M1 基礎**:3D 場景 + 第一人稱移動(WASD/Shift 跑/Space 跳/Ctrl 蹲/滑鼠視角)+ 日夜循環(一天 = 現實 40 分鐘,T 鍵 x120 加速測試)+ FPS 顯示
+- [x] **M1 基礎**:3D 場景 + 第一人稱移動(WASD/Shift 跑/Space 跳/Ctrl 蹲/滑鼠視角)+ 日夜循環(一天 = 現實 40 分鐘;T 鍵加速已於 2026-07-16 移除)+ FPS 顯示
 - [x] **M2 生存**:四大數值(HP/飽食/口渴/體力,規格第 3 章數值)+ HUD 數值條 + 低血泛紅/口渴視野模糊 + 墜落傷害 + 死亡畫面(重新開始 = reload;之後 M7 有床再做重生點)
 - [x] **M3 世界**:三大生態區(荒野西/鄉村中/城市東,邊界帶狀扭動)+ 湖泊 + 公路/城市路網 + 農舍/穀倉/大樓/廢棄車 + 物資點(野果叢/補給箱/垃圾堆,互動等 M4)+ 基本碰撞 + HUD 區域名稱
 - [x] **M4 互動**:10 種物品 + 背包/快捷欄(1-6 使用)+ E 互動拾取(野果/樹枝/補給箱/垃圾堆)+ 湖邊喝水/裝水 + Tab 製作面板(繃帶/營火/煮沸水)+ 痢疾狀態效果
@@ -39,7 +39,7 @@
 - `src/core/TimeSystem.js`:`timeOfDay`(0~24)為全遊戲時間源,之後 M2 的數值消耗、M5 的夜晚敵人 buff(速度+30%/偵測+50%)都從這裡讀。太陽陰影相機跟著玩家移動。
 - `src/player/Player.js`:玩家位置存 `position`(腳底),相機 = position + eyeHeight。按鍵用 `e.code`。
 - 日夜視覺用 `SKY_KEYS` 關鍵影格插值(天空色/霧色/太陽強度)。
-- `src/player/Stats.js`:四大數值。**純邏輯、不 import three**,可直接用 node 跑模擬測試(專案有 `package.json` type:module)。飢渴消耗吃「遊戲小時」(`timeSystem.hoursPerRealSecond` 換算,T 鍵加速會同步加快),體力與歸零扣血吃現實秒。Player 每幀把 `activity.running/moving` 回報給 Stats。
+- `src/player/Stats.js`:四大數值。**純邏輯、不 import three**,可直接用 node 跑模擬測試(專案有 `package.json` type:module)。飢渴消耗吃「遊戲小時」(`timeSystem.hoursPerRealSecond` 換算),體力與歸零扣血吃現實秒。Player 每幀把 `activity.running/moving` 回報給 Stats。
 - 測試用 URL 參數:`?hp=20&hunger=10&thirst=5&stamina=50` 設初始數值;`?pos=x,z&yaw=角度` 傳送與轉向。
 - M3 世界架構:
   - 生態區/道路/高度全是**解析函式**(`biomeWeights`/`roadMask`/`terrainHeight`),不存資料,任何系統直接取樣。荒野=丘陵密林+湖、鄉村=農田+農舍沿公路、城市=棋盤路網(格距 52)+大樓。

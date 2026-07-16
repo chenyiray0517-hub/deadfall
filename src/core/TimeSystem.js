@@ -21,7 +21,7 @@ export class TimeSystem {
     this.scene = scene;
     this.timeOfDay = 6;   // 從清晨 6 點開始
     this.day = 1;
-    this.timeScale = 1;   // T 鍵切換加速
+    this.timeScale = 1;
 
     this.sun = new THREE.DirectionalLight('#fff3d6', 1);
     this.sun.castShadow = true;
@@ -101,14 +101,9 @@ export class TimeSystem {
     return 1 - Math.min(1, s / 0.35);
   }
 
-  // 每現實秒經過幾個遊戲小時(含 T 鍵加速),供 Stats 換算飢渴消耗
+  // 每現實秒經過幾個遊戲小時,供 Stats 換算飢渴消耗
   get hoursPerRealSecond() {
     return this.timeScale * 24 / DAY_LENGTH_SEC;
-  }
-
-  toggleSpeed() {
-    this.timeScale = this.timeScale === 1 ? 120 : 1;
-    return this.timeScale;
   }
 
   get clockText() {
