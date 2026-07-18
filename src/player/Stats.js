@@ -18,6 +18,7 @@ export class Stats {
     this.effects = [];        // {id, label, until(遊戲時)}
     this.infection = 0;       // 感染值 0~100,滿了轉化死亡(規格 3.5)
     this.skills = null;       // 技能系統(main 設定;Items/Player 經由 stats 取用)
+    this.onDamage = null;     // (amount, cause) => {} 受到明顯傷害時通知(main 掛音效)
 
     // 由 Player 每幀回報目前行為
     this.activity = { running: false, moving: false };
@@ -41,6 +42,7 @@ export class Stats {
     if (!this.alive || amount <= 0) return;
     this.hp = Math.max(0, this.hp - amount);
     this.lastDamageCause = cause;
+    if (amount >= 1) this.onDamage?.(amount, cause); // 飢渴的逐幀小扣血不算
     if (this.hp <= 0) this.die(cause);
   }
 

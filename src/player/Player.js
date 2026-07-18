@@ -1,5 +1,6 @@
 import * as THREE from '../lib/three.js';
 import { terrainHeight, TERRAIN_SIZE, SPAWN, resolveColliders, isDeepWater } from '../world/Terrain.js';
+import { sfx } from '../core/Sound.js';
 
 const EYE_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 1.0;
@@ -30,6 +31,7 @@ export class Player {
     this.keys = {};
     this.locked = false;
     this.driving = null; // 開車中 = Vehicle 實例(M8c);移動/相機交給 VehicleManager
+    this.stepAcc = 0;    // 腳步聲:累積移動距離,跨過步幅就響一聲
 
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z);
 
@@ -100,6 +102,15 @@ export class Player {
         this.position.x = prevX;
         this.position.z = prevZ;
       }
+      // 腳步聲:每跨過一個步幅響一聲,音量奔跑 > 行走 > 蹲行
+      if (this.onGround) {
+        this.stepAcc += speed * dt;
+        const stride = running ? 2.6 : 2.0;
+        if (this.stepAcc >= stride) {
+          this.stepAcc = 0;
+          sfx.play('step', { vol: this.crouching ? 0.3 : running ? 1 : 0.55 });
+        }
+      }
     }
     resolveColliders(this.position, 0.4);
 
@@ -118,6 +129,7 @@ export class Player {
       if (stats.trySpendStamina(JUMP_STAMINA)) {
         this.velocityY = JUMP_SPEED;
         this.onGround = false;
+        sfx.play('jump');
       }
     }
     if (!this.onGround) {
@@ -129,6 +141,7 @@ export class Player {
         if (impact > SAFE_FALL_SPEED) {
           stats.damage((impact - SAFE_FALL_SPEED) * FALL_DMG_PER_SPEED, '墜落');
         }
+        sfx.play('land', { vol: Math.min(1, impact / 10) });
         this.position.y = groundY;
         this.velocityY = 0;
         this.onGround = true;

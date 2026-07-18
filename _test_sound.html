@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>音效試聽 — Deadfall</title>
+<style>
+  body { background: #14160f; color: #d8d4c2; font-family: 'JetBrains Mono', monospace; padding: 24px; }
+  h1 { font-size: 16px; color: #e5a13c; margin-bottom: 4px; }
+  p { font-size: 12px; color: #9a977f; margin-bottom: 16px; }
+  h2 { font-size: 13px; color: #8a9a6b; margin: 18px 0 8px; }
+  button {
+    font-family: inherit; font-size: 13px; color: #d8d4c2; background: rgba(6,8,4,.6);
+    border: 1px solid #33382b; padding: 8px 14px; margin: 3px; cursor: pointer;
+  }
+  button:hover { border-color: #e5a13c; }
+  button.on { border-color: #8a9a6b; color: #8a9a6b; }
+  #status { margin-top: 16px; font-size: 12px; color: #6a6a58; }
+</style>
+</head>
+<body>
+<h1>音效試聽頁</h1>
+<p>點任何按鈕會先解鎖 AudioContext。持續音是開關(再按一次停)。左/右鍵測 3D 定位:音源在玩家左/右側 15m。</p>
+<div id="oneshots"></div>
+<h2>持續音(點擊切換)</h2>
+<div id="loopBtns"></div>
+<h2>3D 定位測試</h2>
+<div>
+  <button id="pan-l">🧟 左邊 15m 低吼</button>
+  <button id="pan-r">🧟 右邊 15m 低吼</button>
+  <button id="pan-far">🧟 遠處 28m 低吼</button>
+</div>
+<div id="status">loading…</div>
+
+<script type="module">
+  import { sfx } from './src/core/Sound.js';
+
+  const names = sfx.names();
+  const wrap = document.getElementById('oneshots');
+  let section = null;
+  const GROUPS = [
+    ['移動/身體', ['step', 'jump', 'land', 'pant', 'hurt', 'bite', 'death', 'infection']],
+    ['吃喝/用品', ['eat', 'drink', 'bandage', 'pill', 'inject']],
+    ['戰鬥', ['swing', 'hitFlesh', 'chop', 'break', 'bow', 'dryfire', 'pistol', 'shotgun', 'equip']],
+    ['感染者', ['growl', 'dogGrowl', 'scream', 'zhurt', 'zdie', 'horde']],
+    ['建造/互動', ['knock', 'crash', 'place', 'door', 'chestOpen', 'craft', 'sizzle', 'ignite', 'pickup', 'rustle', 'splash']],
+    ['UI/系統', ['ui', 'uiOff', 'skill', 'prof', 'levelup', 'day', 'sleep']],
+    ['載具', ['wrench', 'carDoor', 'refuel', 'thudMetal', 'crashMetal', 'sputter']],
+  ];
+  const listed = new Set();
+  for (const [title, ids] of GROUPS) {
+    const h = document.createElement('h2');
+    h.textContent = title;
+    wrap.appendChild(h);
+    for (const n of ids) {
+      listed.add(n);
+      const b = document.createElement('button');
+      b.textContent = n;
+      b.onclick = () => { sfx.unlock(); sfx.play(n); };
+      wrap.appendChild(b);
+    }
+  }
+  const missing = names.filter((n) => !listed.has(n));
+
+  const loopsOn = {};
+  const loopWrap = document.getElementById('loopBtns');
+  for (const n of ['heartbeat', 'campfire', 'engine', 'bike']) {
+    const b = document.createElement('button');
+    b.textContent = n;
+    b.onclick = () => {
+      sfx.unlock();
+      loopsOn[n] = !loopsOn[n];
+      b.classList.toggle('on', loopsOn[n]);
+      sfx.setLoop(n, loopsOn[n], { vol: 1, rate: 1 });
+    };
+    loopWrap.appendChild(b);
+  }
+
+  sfx.setListener(0, 0, 0); // 面向 -z;+x 在右邊
+  document.getElementById('pan-l').onclick = () => { sfx.unlock(); sfx.play3d('growl', -15, -3); };
+  document.getElementById('pan-r').onclick = () => { sfx.unlock(); sfx.play3d('growl', 15, -3); };
+  document.getElementById('pan-far').onclick = () => { sfx.unlock(); sfx.play3d('growl', 0, -28); };
+
+  document.getElementById('status').textContent =
+    `SOUNDS 共 ${names.length} 種` + (missing.length ? `;⚠ 試聽頁漏列:${missing.join(', ')}` : ';全部已列出 ✓');
+</script>
+</body>
+</html>

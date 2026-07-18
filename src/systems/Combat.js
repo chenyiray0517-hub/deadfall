@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.js';
 import { ITEMS } from '../player/Items.js';
 import { losBlocked, colliders } from '../world/Terrain.js';
+import { sfx } from '../core/Sound.js';
 
 // 玩家戰鬥(M6):近戰揮擊/遠程射擊、近戰耐久、槍聲噪音、第一人稱武器模型
 // 命中判定不用 raycast 物件求交:近戰是面前扇形取最近,遠程是視線射線對感染者圓柱心的最近距離
@@ -36,6 +37,7 @@ export class Combat {
     if (!ITEMS[id]?.weapon || this.inventory.count(id) <= 0) return;
     this.equipped = this.equipped === id ? null : id;
     this.buildViewmodel();
+    sfx.play('equip');
   }
 
   durabilityOf(id) {
@@ -75,6 +77,7 @@ export class Combat {
     }
     this.cd = def.cd;
     this.startAnim('swing');
+    sfx.play('swing');
     const p = this.player.position;
     if (def.noise) this.enemies.hearNoise(p.x, p.z, def.noise, this.isNight());
 
@@ -99,6 +102,7 @@ export class Combat {
       return;
     }
     const dmg = Math.round(def.dmg * (this.skills?.meleeMult() ?? 1)); // 🪓 近戰專精
+    sfx.play('hitFlesh');
     const killed = best.takeDamage(dmg, p, this.enemies, now);
     this.skills?.addProf('melee', 1); // 打中才算熟練(規格 7.7 用進廢退)
     this.onHit(killed, best);
@@ -115,6 +119,7 @@ export class Combat {
       if ((dx * fx + dz * fz) / d < 0.5) continue;
       this.inventory.add('wood', 2);
       this.toast('🪓 砍下木柴 ×2');
+      sfx.play('chop');
       return true;
     }
     return false;
@@ -127,6 +132,7 @@ export class Combat {
       this.inventory.remove(this.equipped, 1);
       this.dur.delete(this.equipped);
       this.toast(`${def.name} 壞掉了!`);
+      sfx.play('break');
       this.equipped = null;
       this.buildViewmodel();
     } else {
@@ -137,6 +143,7 @@ export class Combat {
   shoot(def, now) {
     if (this.inventory.count(def.ammo) <= 0) {
       this.toast(`沒有${ITEMS[def.ammo].name}了`);
+      sfx.play('dryfire');
       return;
     }
     if (def.stam && !this.stats.trySpendStamina(def.stam)) {
@@ -149,6 +156,7 @@ export class Combat {
     this.cd = isGun ? def.cd * (this.skills?.gunCdMult() ?? 1) : def.cd;
     if (isGun) this.skills?.addProf('gun', 1);
     this.startAnim('shoot');
+    sfx.play(isGun ? this.equipped : 'bow'); // 'pistol' / 'shotgun' / 'bow'
     const p = this.player.position;
     if (def.noise) {
       this.enemies.hearNoise(p.x, p.z, def.noise, this.isNight()); // 槍聲引怪(規格 5.3)
@@ -186,6 +194,7 @@ export class Combat {
     if (def.ammo === 'arrow' && Math.random() < (this.skills?.arrowRecover() ?? 0.6)) {
       best.stuckArrows += 1; // 箭插在身上,搜屍可回收(規格 6.5;神射手 Lv2 提高到 90%)
     }
+    sfx.play3d('hitFlesh', best.pos.x, best.pos.z);
     const killed = best.takeDamage(dmg, p, this.enemies, now);
     this.onHit(killed, best);
   }

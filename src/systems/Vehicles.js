@@ -5,6 +5,7 @@ import {
 } from '../world/Terrain.js';
 import { structureSpots } from '../world/Structures.js';
 import { ITEMS } from '../player/Items.js';
+import { sfx } from '../core/Sound.js';
 
 // 載具(M8c,規格 7.5 起步集:腳踏車 + 皮卡;摩托/巴士之後再加)
 // 修理需要零件(引擎/輪胎/電瓶,從廢棄車拆或補給箱找)+ 廢金屬;皮卡另需汽油(廢棄車虹吸)
@@ -296,6 +297,7 @@ export class VehicleManager {
   interceptAttack(dmg) {
     const v = this.driving;
     if (!v || v.hp <= 0) return false;
+    sfx.play('thudMetal'); // 感染者搥打車體
     this.damageVehicle(v, dmg);
     return true;
   }
@@ -303,7 +305,10 @@ export class VehicleManager {
   damageVehicle(v, dmg) {
     if (v.hp <= 0) return;
     v.hp = Math.max(0, v.hp - dmg);
-    if (v.hp <= 0) this.toast?.(`💥 ${v.def.name}拋錨了!需要廢金屬×3 修復車體`);
+    if (v.hp <= 0) {
+      this.toast?.(`💥 ${v.def.name}拋錨了!需要廢金屬×3 修復車體`);
+      sfx.play('sputter');
+    }
   }
 
   // 碰撞解算(跳過自己的碰撞箱),回傳被推開的距離
@@ -368,7 +373,10 @@ export class VehicleManager {
     if (throttle !== 0 && v.def.fuelUse > 0) {
       const before = v.fuel;
       v.fuel = Math.max(0, v.fuel - v.def.fuelUse * dt);
-      if (before > 0 && v.fuel <= 0) this.toast?.('⛽ 沒油了!R 加油(廢棄車可虹吸)');
+      if (before > 0 && v.fuel <= 0) {
+        this.toast?.('⛽ 沒油了!R 加油(廢棄車可虹吸)');
+        sfx.play('sputter');
+      }
     }
 
     // 位移
@@ -388,6 +396,7 @@ export class VehicleManager {
     if (disp > 0.02) {
       if (Math.abs(v.speed) > 6) {
         const dmg = Math.round((Math.abs(v.speed) - 5) * 2.5);
+        sfx.play('crashMetal');
         this.damageVehicle(v, dmg);
         this.toast?.(`💥 撞上了!${v.def.name} -${dmg} 耐久`);
         v.speed *= -0.15;

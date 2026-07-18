@@ -4,6 +4,7 @@ import {
   resolveColliders, losBlocked, insideAnyBox, insideNoSpawn, SPAWN, mulberry32,
 } from '../world/Terrain.js';
 import { routeViaDoor } from '../world/Interiors.js';
+import { sfx } from '../core/Sound.js';
 
 // 感染者類型(規格 5.1/5.2 起步集:遊蕩者、奔跑者、感染犬)
 const TYPES = {
@@ -48,6 +49,7 @@ class Zombie {
     this.attackCd = 0;
     this.senseTimer = Math.random() * 0.2; // 錯開感知檢查
     this.lodDt = 0; // 遠處降頻更新的累積時間(地圖擴大後省效能)
+    this.nextGrowl = Math.random() * 8; // 下次低吼時刻(近距離氛圍音)
     this.screamed = false;
     this.bobPhase = Math.random() * 10;
 
@@ -74,8 +76,10 @@ class Zombie {
     this.hitFlash = 0.25;
     if (this.hp <= 0) {
       this.die(now);
+      sfx.play3d('zdie', this.pos.x, this.pos.z);
       return true;
     }
+    sfx.play3d('zhurt', this.pos.x, this.pos.z);
     this.staggerT = 0.35; // 硬直
     this.lastKnown = { x: fromPos.x, z: fromPos.z };
     this.startChase(manager, now); // 挨打會反擊,並帶動附近同伴
@@ -138,6 +142,7 @@ class Zombie {
       this.state = 'chase';
       // 奔跑者尖叫呼喚同伴(規格 5.1);一般感染者也會帶動半徑 20m 內的同類(規格 5.3)
       const radius = this.def.scream && !this.screamed ? 40 : 20;
+      if (this.def.scream && !this.screamed) sfx.play3d('scream', this.pos.x, this.pos.z, { dist: 70 });
       if (this.def.scream) this.screamed = true;
       manager.alert(this.pos.x, this.pos.z, radius);
     }
@@ -172,6 +177,14 @@ class Zombie {
           this.stateTimer = 0;
         }
       }
+    }
+
+    // 低吼氛圍音:靠近玩家才播,追擊中更急促(距離衰減與聲道定位由 play3d 處理)
+    if (now > this.nextGrowl) {
+      const chasing = this.state === 'chase';
+      this.nextGrowl = now + (chasing ? 2 + Math.random() * 3 : 5 + Math.random() * 9);
+      const d = Math.hypot(playerPos.x - this.pos.x, playerPos.z - this.pos.z);
+      if (d < 32) sfx.play3d(this.def.dog ? 'dogGrowl' : 'growl', this.pos.x, this.pos.z, { vol: chasing ? 1 : 0.55, dist: 32 });
     }
 
     let speed = 0;
@@ -490,7 +503,8 @@ export class EnemyManager {
       onAttack: (dmg, cause) => {
         // 玩家在載具裡時打的是車體(M8c;main 掛 interceptAttack,車爛了才咬得到人)
         if (this.interceptAttack && this.interceptAttack(dmg)) return;
-        stats.applyBite(dmg, cause); // 傷害 + 感染判定(M6)
+        sfx.play('bite');
+        stats.applyBite(dmg, cause); // 傷害 + 感染判定(M6);受傷悶哼走 stats.onDamage
       },
     };
     // 降頻更新:遠處(玩家 130m 外,霧裡幾乎看不到)的感染者每 0.35 秒才走一步,
@@ -532,7 +546,10 @@ export class EnemyManager {
         if (sp) {
           zb.hp -= 10 * dt;
           zb.hitFlash = Math.max(zb.hitFlash, 0.12);
-          if (zb.hp <= 0) zb.die(now);
+          if (zb.hp <= 0) {
+            zb.die(now);
+            sfx.play3d('zdie', zb.pos.x, zb.pos.z);
+          }
           buildings.damage(sp, 1.5 * dt);
         }
       }

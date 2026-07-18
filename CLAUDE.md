@@ -28,6 +28,7 @@
 - [x] **M8b 技能樹**(2026-07-13):XP 升級給技能點(擊殺/搜刮/採集/製作/建造/存活天數),K 鍵開三分支九技能(生存/戰鬥/製作,規格 7.7 簡化版;社交分支等 NPC),含存讀檔;順手補上「烤肉」配方(營火烹飪)
 - [x] **M8c 載具**(2026-07-13):腳踏車+皮卡(規格 7.5),沿主幹道路肩固定生成;拆廢棄車得汽油/零件 → 裝零件修車 → E 上車 WASD 駕駛(第三人稱跟車視角);皮卡可衝撞、引擎聲引怪、感染者打車體;含存讀檔
 - [x] **M8d 熟練度軌**(2026-07-13):規格 7.7 雙軌的另一半——做什麼練什麼,不吃技能點,4 軌各 5 級:跑步(體力上限+4/級)/烹飪(烹飪品效果+10%/級)/槍械(冷卻-5%/級,「後座力下降」等效)/近戰(體力消耗-5%/級);K 面板下方顯示進度,含存讀檔(舊檔相容)
+- [x] **全套音效**(2026-07-18):Web Audio 程序化合成 52 種音效 + 4 種循環音,涵蓋所有動作(腳步/戰鬥/感染者/建造/載具/UI…),M 鍵靜音
 - [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支;載具的摩托車/巴士也待補)
 
 ## 架構備忘
@@ -111,6 +112,11 @@
   - 套用點:main.js 頂層 `await loadItemModels()` 後傳入 `spawnLoot(models)`——野果叢的果實從 3 顆紅球改成一叢一串莓果模型(**berry 迴圈的 rng 消耗次數刻意跟舊版一樣**,固定 seed 的後續生成序列才不會位移、舊存檔座標比對才有效;沒模型時退回紅球,一樣單 instance)。吃/喝 berry/canned/cooked/bottled/dirty/boiled 時手上短暫舉起模型(`showConsumeFx`,掛 camera 的 consumeProp,0.9s 舉到嘴邊再放下;瓶裝水=背帶軍用水壺 canteen.glb,髒水/煮沸水共用軟木塞水壺 flask.glb,loadItemModels 同檔只抓一次)。
   - 手持武器模型:木棒 bat.glb / 消防斧 fireaxe.glb 接進 `Combat.buildViewmodel`(main 傳 `models: itemModels` 進 Combat;pose 表在 melee 分支內,模型缺失退回方塊拼裝)。GLB 幾何/貼圖是共用的,viewmodel 清場 dispose 要跳過 `userData.shared`。
   - 測試:`_test_models.html`(40 條,headless --dump-dom);`?prop=canned` 把手持動畫凍在中段、`?items=bat:1&equip=bat` 直接裝備武器(截圖驗證用)。
+- 音效架構(2026-07-18):
+  - 全在 `src/core/Sound.js`:Web Audio API 程序化合成(零音檔素材),export 單例 `sfx`。import 零副作用——AudioContext 要等使用者手勢後 `sfx.unlock()`(main 掛在 click/keydown,冪等),沒 unlock 前所有呼叫都 no-op,所以測試頁/headless/讀檔還原時 import 或呼叫都安全。
+  - 介面:`sfx.play(name, {vol,pan})` 2D 音;`sfx.play3d(name, x, z, {vol,dist})` 世界音(距離平方衰減 + StereoPanner 左右定位,基準 = `sfx.setListener(x,z,yaw)`,main 每幀 `updateAudio()` 更新);`sfx.setLoop(name, on, {vol,rate})` 循環音(engine/bike/campfire/heartbeat,緩衝區程序化生成、頻率取整數週期無縫循環);`sfx.toggleMute()` M 鍵靜音(localStorage `deadfall_muted`,獨立於遊戲存檔)。
+  - 掛載點:Player(腳步依步幅累積距離/跳/落地)、Stats 新增 `onDamage` callback(僅 amount>=1,飢渴逐幀小扣血不響;保持純邏輯 node 可測)、Combat(揮/命中/砍樹/斷裂/弓/槍/空槍/裝備)、Zombies(低吼排程 `nextGrowl`、奔跑者尖叫、受擊/死亡——zdie 放在擊殺處不放 `die()` 內,免得讀檔還原屍體時響)、Building(`toggleDoor(b, silent)` 讀檔傳 silent;`damage` 只在 dmg>=5 響,尖刺自然磨損不響)、Vehicles(搥車/撞擊/沒油/拋錨)、main(吃喝/製作/建造/UI/技能/屍潮/感染/死亡/晨鳥)。
+  - `_test_sound.html`:手動試聽頁(52 種一鍵播放 + 循環音開關 + 3D 定位測試);頁面會自動核對 SOUNDS 表有沒有漏列。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

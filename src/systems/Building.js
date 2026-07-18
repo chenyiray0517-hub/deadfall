@@ -2,6 +2,7 @@ import * as THREE from '../lib/three.js';
 import { Inventory } from '../player/Items.js';
 import { terrainHeight, colliders, isDeepWater, TERRAIN_SIZE } from '../world/Terrain.js';
 import { costOf } from './Crafting.js';
+import { sfx } from '../core/Sound.js';
 
 // 建造系統(M7,規格 7.2 起步集)
 // 放置的建築註冊到 Terrain.colliders.boxes:玩家/感染者碰撞、AI 視線遮擋全部自動生效
@@ -137,9 +138,10 @@ export class Buildings {
     return b;
   }
 
-  toggleDoor(b) {
+  toggleDoor(b, silent = false) {
     if (!b.def.door) return;
     b.open = !b.open;
+    if (!silent) sfx.play3d('door', b.x, b.z);
     const idx = colliders.boxes.indexOf(b.box);
     if (b.open) {
       if (idx !== -1) colliders.boxes.splice(idx, 1); // 開門 = 不擋路也不擋視線
@@ -150,12 +152,14 @@ export class Buildings {
     }
   }
 
-  // 感染者攻擊建築
+  // 感染者攻擊建築(dmg < 5 的是尖刺自然磨損,不出聲)
   damage(b, dmg) {
     if (!this.list.includes(b)) return;
     b.hp -= dmg;
     b.flashT = 0.25;
+    if (dmg >= 5) sfx.play3d('knock', b.x, b.z);
     if (b.hp <= 0) {
+      sfx.play3d('crash', b.x, b.z, { dist: 60 });
       this.destroy(b);
       this.onDestroyed?.(b);
     }
@@ -221,7 +225,7 @@ export class Buildings {
       if (!def) continue;
       const b = this.place(def, s.x, s.z, s.rot);
       b.hp = s.hp;
-      if (s.open) this.toggleDoor(b);
+      if (s.open) this.toggleDoor(b, true); // 讀檔還原,不出聲
       if (s.storage) for (const [id, n] of s.storage) b.storage.add(id, n);
       if (s.home) home = b;
     }

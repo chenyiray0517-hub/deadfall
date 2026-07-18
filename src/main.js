@@ -7,7 +7,8 @@ import { Player } from './player/Player.js';
 import { Stats } from './player/Stats.js';
 import { Skills, SKILL_DEFS, PROF_DEFS, XP } from './player/Skills.js';
 import { Inventory, ITEMS, quickbarIds } from './player/Items.js';
-import { RECIPES, costText, canCraft, craft, isNearFire, updateCampfires } from './systems/Crafting.js';
+import { RECIPES, costText, canCraft, craft, isNearFire, updateCampfires, campfires } from './systems/Crafting.js';
+import { sfx } from './core/Sound.js';
 import { findInteraction, doInteract } from './systems/Interaction.js';
 import { EnemyManager } from './entities/Zombies.js';
 import { Combat } from './systems/Combat.js';
@@ -38,7 +39,12 @@ const timeSystem = new TimeSystem(scene);
 const stats = new Stats();
 const skills = new Skills();
 stats.skills = skills; // Items/Player/Stats 內部經由 stats 取用技能加成
-skills.onProf = (msg) => toast(`⬆ ${msg}`); // 熟練度升級提示(規格 7.7 用進廢退軌)
+stats.onDamage = () => sfx.play('hurt'); // 受到明顯傷害悶哼一聲
+skills.onProf = (msg) => { toast(`⬆ ${msg}`); sfx.play('prof'); }; // 熟練度升級提示(規格 7.7 用進廢退軌)
+
+// 音效引擎:瀏覽器要求使用者手勢後才能出聲(點擊/按鍵都算,冪等)
+addEventListener('click', () => sfx.unlock());
+addEventListener('keydown', () => sfx.unlock());
 const inventory = new Inventory();
 const player = new Player(camera, renderer.domElement, stats);
 const enemies = new EnemyManager(scene);
@@ -102,7 +108,10 @@ function updateConsumeFx(dt) {
 
 // 加 XP;升級就提示(技能樹 M8)
 function gainXp(n) {
-  if (skills.addXp(n) > 0) toast(`⬆ 升到 Lv${skills.level}!獲得技能點——按 K 打開技能樹`);
+  if (skills.addXp(n) > 0) {
+    toast(`⬆ 升到 Lv${skills.level}!獲得技能點——按 K 打開技能樹`);
+    sfx.play('levelup');
+  }
 }
 
 addEventListener('resize', () => {
@@ -157,6 +166,7 @@ function doRespawn() {
   overlayEl.classList.remove('hidden'); // 點擊重新鎖定滑鼠
   updateQuickbar();
   toast('你在床邊醒來……身上的東西掉了一半');
+  sfx.play('day');
   if (canSave) saveGame(saveCtx); // 重生後立刻存,關頁面也不會退回死前狀態
 }
 document.addEventListener('pointerlockchange', () => {
@@ -255,6 +265,8 @@ function renderChestPanel() {
 }
 
 function setPanel(mode) {
+  if (mode && !panelMode) sfx.play('ui');
+  else if (!mode && panelMode) sfx.play('uiOff');
   panelMode = mode;
   panelEl.classList.toggle('hidden', !mode);
   if (mode) buildings.cancelPlacing(); // 開面板就退出建造模式
@@ -273,6 +285,7 @@ function doChestTransfer(digit) {
   if (n > 0) {
     from.remove(act.id, n);
     to.add(act.id, n);
+    sfx.play('pickup');
   }
   renderChestPanel();
   updateQuickbar();
@@ -285,18 +298,27 @@ addEventListener('keydown', (e) => {
     if (player.locked && stats.alive && !vehicles.driving) setPanel(panelMode ? null : 'craft');
     return;
   }
+  if (e.code === 'KeyM') {
+    // 靜音切換(隨時可按,偏好會記住)
+    toast(sfx.toggleMute() ? '🔇 已靜音(再按 M 開啟)' : '🔊 音效開啟');
+    return;
+  }
   if (!player.locked || !stats.alive) return;
 
   // 開車中:只吃 E(下車)/R(加油),其餘按鍵不作用(M8c)
   if (vehicles.driving) {
     if (e.code === 'KeyE') {
       toast(vehicles.exitVehicle(player));
+      sfx.play('carDoor');
       vehicleEl.classList.add('hidden');
       combat.viewmodel.visible = true;
       updateQuickbar();
     } else if (e.code === 'KeyR') {
       const msg = vehicles.refuel(inventory);
-      if (msg) toast(msg);
+      if (msg) {
+        toast(msg);
+        if (msg.startsWith('⛽')) sfx.play('refuel');
+      }
     }
     return;
   }
@@ -320,18 +342,23 @@ addEventListener('keydown', (e) => {
     if (!sel) return;
     if (sel.kind === 'door') { buildings.toggleDoor(sel.b); return; }
     if (sel.kind === 'vehicle' || sel.kind === 'carwreck') {
+      const wasDriving = !!vehicles.driving;
       const res = vehicles.interact(sel, inventory, player, stats);
       if (res.msg) toast(res.msg);
       if (res.xp) gainXp(res.xp);
+      if (vehicles.driving && !wasDriving) sfx.play('carDoor'); // 上車
+      else if (res.msg) sfx.play('wrench');                    // 拆車/裝零件/修車體
       if (vehicles.driving) combat.viewmodel.visible = false; // 第三人稱視角藏起手上武器
       updateQuickbar();
       return;
     }
-    if (sel.kind === 'chest') { chestRef = sel.b; setPanel('chest'); return; }
+    if (sel.kind === 'chest') { chestRef = sel.b; sfx.play('chestOpen'); setPanel('chest'); return; }
     if (sel.kind === 'bed') { trySleep(sel.b); return; }
     const msg = doInteract(sel, inventory, stats);
     if (msg) {
       toast(msg);
+      const INTERACT_SFX = { corpse: 'rustle', loot: 'pickup', fill: 'splash', drinkLake: 'drink' };
+      if (INTERACT_SFX[sel.kind]) sfx.play(INTERACT_SFX[sel.kind]);
       if (sel.kind === 'corpse') gainXp(XP.corpse);
       else if (sel.kind === 'loot') {
         gainXp(sel.point.type === 'berry' || sel.point.type === 'stick' ? XP.gather : XP.loot);
@@ -355,8 +382,11 @@ addEventListener('keydown', (e) => {
         });
         toast(msg || '材料不足或需要靠近營火');
         if (msg) {
+          sfx.play(recipe.place ? 'ignite' : recipe.needFire ? 'sizzle' : 'craft');
           gainXp(XP.craft);
           if (recipe.needFire) skills.addProf('cook', 1); // 🍳 營火烹飪練熟練
+        } else {
+          sfx.play('uiOff');
         }
         renderCraftPanel();
       }
@@ -365,8 +395,8 @@ addEventListener('keydown', (e) => {
       const def = SKILL_DEFS[digit - 1];
       if (def) {
         const msg = skills.up(def.id);
-        if (msg) toast(msg);
-        else toast(skills.points <= 0 ? '沒有技能點——升級才會獲得' : '這個技能已滿級');
+        if (msg) { toast(msg); sfx.play('skill'); }
+        else { toast(skills.points <= 0 ? '沒有技能點——升級才會獲得' : '這個技能已滿級'); sfx.play('uiOff'); }
         renderSkillsPanel();
       }
     } else if (panelMode === 'build') {
@@ -377,6 +407,7 @@ addEventListener('keydown', (e) => {
         panelMode = null;
         panelEl.classList.add('hidden');
         toast(`左鍵放置${def.name},右鍵/B 取消`);
+        sfx.play('ui');
       }
     } else if (panelMode === 'chest') {
       doChestTransfer(digit);
@@ -392,6 +423,8 @@ addEventListener('keydown', (e) => {
         if (msg) {
           toast(`${ITEMS[id].name}:${msg}`);
           showConsumeFx(id);
+          const USE_SFX = { bottled: 'drink', dirty: 'drink', boiled: 'drink', bandage: 'bandage', antibiotic: 'pill', serum: 'inject' };
+          sfx.play(USE_SFX[id] || 'eat'); // 野莓/罐頭/生肉/烤肉都是咀嚼聲
         }
       }
     }
@@ -406,8 +439,11 @@ addEventListener('mousedown', (e) => {
       const msg = buildings.tryPlace(inventory);
       if (msg) {
         toast(msg);
+        sfx.play('place');
         gainXp(XP.build);
         updateQuickbar();
+      } else {
+        sfx.play('uiOff'); // 位置不合法或材料不足
       }
     } else {
       combat.tryAttack(elapsed);
@@ -415,6 +451,7 @@ addEventListener('mousedown', (e) => {
   } else if (e.button === 2 && buildings.placing) {
     buildings.cancelPlacing();
     toast('取消建造');
+    sfx.play('uiOff');
   }
 });
 addEventListener('contextmenu', (e) => {
@@ -434,6 +471,8 @@ function trySleep(bed) {
   }
   buildings.homeBed = bed;
   sleepUntilMorning(timeSystem, stats);
+  sfx.play('sleep');
+  setTimeout(() => sfx.play('day'), 800); // 醒來的晨光鳥鳴
   toast(`睡了一覺——第 ${timeSystem.day} 天清晨,重生點已更新`);
   if (canSave && saveGame(saveCtx)) toast('💾 已存檔');
 }
@@ -526,6 +565,39 @@ function updateQuickbar() {
   weaponEl.classList.toggle('hidden', !combat.equipped);
 }
 
+// ── 持續音效:每幀更新聽者位置與各種循環音(心跳/營火/引擎)──
+let prevExhausted = false;
+function updateAudio() {
+  sfx.setListener(player.position.x, player.position.z, player.yaw);
+
+  // 力竭喘氣(進入力竭的那一刻)
+  if (stats.exhausted && !prevExhausted) sfx.play('pant');
+  prevExhausted = stats.exhausted;
+
+  // 低血心跳:HP < 25 漸強漸快
+  const lowHp = started && stats.alive && stats.hp < 25;
+  sfx.setLoop('heartbeat', lowHp, lowHp ? {
+    vol: 0.4 + (1 - stats.hp / 25) * 0.6,
+    rate: 1 + (1 - stats.hp / 25) * 0.7,
+  } : undefined);
+
+  // 營火劈啪:靠近最近的營火才聽得到
+  let fireD = Infinity;
+  for (const f of campfires) {
+    const d = Math.hypot(player.position.x - f.x, player.position.z - f.z);
+    if (d < fireD) fireD = d;
+  }
+  sfx.setLoop('campfire', fireD < 9, { vol: Math.max(0, 1 - fireD / 9) });
+
+  // 引擎/腳踏車(開車中)
+  const v = vehicles.driving;
+  const engineOn = !!v && v.type === 'pickup' && v.hp > 0 && v.fuel > 0;
+  const sp = v ? Math.abs(v.speed) / v.def.maxSpeed : 0;
+  sfx.setLoop('engine', engineOn, { vol: 0.7 + sp * 0.3, rate: 0.7 + sp * 1.2 });
+  const bikeOn = !!v && v.type === 'bike' && Math.abs(v.speed) > 0.4;
+  sfx.setLoop('bike', bikeOn, { vol: 0.4 + sp * 0.6, rate: 0.6 + sp * 1.8 });
+}
+
 let infectionWarned = false;
 function updateEffects() {
   const parts = stats.effects
@@ -536,6 +608,7 @@ function updateEffects() {
     if (!infectionWarned) {
       infectionWarned = true;
       toast('🦠 傷口感染了!抗生素能凍結惡化,血清才能根治');
+      sfx.play('infection');
     }
   }
   effectsEl.innerHTML = parts.join('　');
@@ -544,6 +617,7 @@ function updateEffects() {
 let deathShown = false;
 function showDeath() {
   deathShown = true;
+  sfx.play('death');
   document.exitPointerLock();
   if (vehicles.driving) { // 死在車上:先下車,重生才不會卡在駕駛狀態
     vehicles.exitVehicle(player);
@@ -589,6 +663,8 @@ function loop() {
     player, stats, enemies, camera, now: elapsed,
     onRam: (killed, zb) => {
       hitmark(killed);
+      sfx.play('hitFlesh');
+      sfx.play('thudMetal', { vol: 0.6 });
       if (killed) {
         toast(`💥 撞飛了${zb.def.name}!`);
         gainXp(zb.def.xp || 10);
@@ -604,6 +680,7 @@ function loop() {
   if (buildings.placing) buildings.updateGhost(player, inventory);
   updateCampfires(elapsed);
   updateStatsHud();
+  updateAudio();
 
   // 互動提示(每幀,便宜);建造模式改顯示放置說明;開車改顯示駕駛 HUD
   if (player.locked && stats.alive) {
@@ -639,13 +716,17 @@ function loop() {
     if (stats.alive && started) {
       // 屍潮夜襲檢查(規格 7.2)
       const horde = enemies.maybeHorde(timeSystem, player.position, elapsed);
-      if (horde) toast('🧟 屍潮來襲!成群的嘶吼從黑暗中逼近……');
+      if (horde) {
+        toast('🧟 屍潮來襲!成群的嘶吼從黑暗中逼近……');
+        sfx.play('horde');
+      }
       // 每撐過一天給 XP(睡覺快轉也算)
       if (lastXpDay === 0) lastXpDay = timeSystem.day;
       if (timeSystem.day > lastXpDay) {
         gainXp(XP.day * (timeSystem.day - lastXpDay));
         lastXpDay = timeSystem.day;
         toast(`🌅 又撐過一天 +${XP.day} XP`);
+        sfx.play('day');
       }
     }
     // 左上角經驗值;有沒花的技能點就亮起提醒
