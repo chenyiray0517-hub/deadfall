@@ -36,7 +36,8 @@ try {
   const full = new Skills();
   full.points = 99;
   for (const d of SKILL_DEFS) for (let i = 0; i < d.max; i++) full.up(d.id);
-  test('全滿等總點數 = 15', 99 - full.points === 15);
+  // 生存6 + 戰鬥6 + 製作3 + 社交4(M8f 加了交易折扣/口才)
+  test('全滿等總點數 = 19', 99 - full.points === 19, `${99 - full.points}`);
   test('輕足 -50% 噪音', full.noiseMult() === 0.5);
   test('採集達人 70% 加成', Math.abs(full.bonusLootChance() - 0.7) < 1e-9);
   test('近戰 +40% 遠程 +30%', Math.abs(full.meleeMult() - 1.4) < 1e-9 && Math.abs(full.rangedMult() - 1.3) < 1e-9);

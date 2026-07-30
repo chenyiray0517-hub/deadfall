@@ -128,6 +128,7 @@
   #panel {
     position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: min(520px, 90vw);
+    max-height: 86vh; overflow-y: auto;   /* 技能樹/交易清單變長也不會爆出畫面 */
     background: rgba(10, 12, 8, .92); border: 1px solid #33382b;
     padding: 22px 26px; font-size: 14px;
   }

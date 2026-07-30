@@ -1,5 +1,5 @@
 // 存讀檔(M7.5,MVP 驗收項):整包遊戲狀態 → localStorage JSON
-// 時間/數值/背包/武器耐久/建築(含箱內物品)/營火/已拿物資點/感染者/屍潮排程
+// 時間/數值/背包/武器耐久/建築(含箱內物品)/營火/已拿物資點/感染者/屍潮排程/載具/NPC 聲望
 // 建築與感染者的細節交給各自的 serialize()/loadFrom()
 
 import { lootPoints, hideLoot } from '../world/LootSpawner.js';
@@ -51,7 +51,7 @@ export function applyTakenLoot(arr) {
   }
 }
 
-export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills, vehicles }) {
+export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills, vehicles, npcs }) {
   const data = {
     v: 1,
     skills: skills ? skills.serialize() : null,
@@ -69,6 +69,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
     loot: encodeTakenLoot(),
     fires: campfires.map((f) => ({ x: f.x, z: f.z })),
     vehicles: vehicles ? vehicles.serialize() : null, // M8c(舊檔沒有 = 全新未修狀態)
+    npcs: npcs ? npcs.serialize() : null,             // M8f 聲望與商人庫存(舊檔沒有 = 初始狀態)
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -79,7 +80,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
 }
 
 // data 來自 peekSave();呼叫端負責之後的 HUD 重繪
-export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles }) {
+export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs }) {
   timeSystem.timeOfDay = data.time.t;
   timeSystem.day = data.time.day;
 
@@ -103,6 +104,7 @@ export function loadGame(data, { timeSystem, stats, inventory, player, combat, b
   enemies.loadFrom(data.enemies);
 
   if (vehicles) vehicles.loadFrom(data.vehicles);
+  if (npcs) npcs.loadFrom(data.npcs);
   applyTakenLoot(data.loot);
   for (const f of data.fires) placeCampfire(scene, f.x, f.z);
 }

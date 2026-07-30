@@ -5,7 +5,7 @@ import { LAKE } from '../world/Terrain.js';
 const REACH = 2.6;
 
 // 找出目前可互動的目標,回傳 {kind, label, point?/zombie?/b?} 或 null
-export function findInteraction(player, inv, enemies, buildings, vehicles) {
+export function findInteraction(player, inv, enemies, buildings, vehicles, npcs) {
   // 自己蓋的設施:門/儲物箱/床(M7;開關門要快,擺最前面)
   if (buildings) {
     let bb = null;
@@ -20,6 +20,12 @@ export function findInteraction(player, inv, enemies, buildings, vehicles) {
       if (bb.def.chest) return { kind: 'chest', b: bb, label: '打開儲物箱' };
       return { kind: 'bed', b: bb, label: '睡覺(夜間快轉,設重生點)' };
     }
+  }
+
+  // NPC 交談(M8f;人比屍體和箱子重要,擺在載具之前)
+  if (npcs) {
+    const sn = npcs.findInteraction(player.position);
+    if (sn) return sn;
   }
 
   // 載具:上車/修理/拆廢棄車(M8c,執行走 vehicles.interact)

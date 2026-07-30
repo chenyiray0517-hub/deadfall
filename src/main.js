@@ -15,6 +15,7 @@ import { Combat } from './systems/Combat.js';
 import { Buildings, BUILDABLES, sleepUntilMorning, dropHalfInventory } from './systems/Building.js';
 import { peekSave, clearSave, saveGame, loadGame } from './systems/SaveSystem.js';
 import { VehicleManager } from './systems/Vehicles.js';
+import { NpcManager, FACTIONS, PRICES, giftValue } from './entities/Npc.js';
 import { loadItemModels } from './lib/glb.js';
 
 // ── 基礎場景 ──
@@ -53,6 +54,8 @@ buildings.skills = skills;
 buildings.onDestroyed = (b) => toast(`⚠ ${b.def.name}被摧毀了!`);
 const vehicles = new VehicleManager(scene); // 載具(M8c;要在 createStructures 之後,拿廢棄車位置)
 vehicles.toast = toast;
+const npcs = new NpcManager(scene); // NPC 與陣營(M8f;同樣要在 createStructures 之後)
+npcs.skills = skills;               // 交易折扣/口才
 enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
@@ -203,6 +206,9 @@ let panelMode = null; // null | 'craft' | 'build' | 'chest' | 'skills'
 let chestRef = null;  // {storage} —— 儲物箱,或皮卡/巴士的車廂(M8e 移動倉庫)
 let chestTitle = '儲物箱';
 let chestActions = [];
+// 面板格子鍵:技能樹加了社交分支後超過 9 項,往後延伸到 0 - =(面板會標出鍵)
+const PANEL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
+const KEY_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
 
 function matsLine() {
   return [...inventory.items.entries()]
@@ -238,7 +244,7 @@ function renderSkillsPanel() {
     const header = s.branch !== lastBranch ? `<div class="mats" style="margin:10px 0 2px">── ${s.branch} ──</div>` : '';
     lastBranch = s.branch;
     const state = maxed ? '<span style="color:#8a9a6b">已滿級</span>' : s.desc(lv + 1);
-    return `${header}<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${i + 1}]</span> ${s.icon} ${s.name} Lv${lv}/${s.max} <span class="req">${state}</span></div>`;
+    return `${header}<div class="recipe ${ok ? '' : 'no'}"><span class="k">[${KEY_LABELS[i] ?? '·'}]</span> ${s.icon} ${s.name} Lv${lv}/${s.max} <span class="req">${state}</span></div>`;
   }).join('');
   // 熟練度軌:做什麼練什麼,不吃點數(規格 7.7 雙軌的另一半)
   const profRows = PROF_DEFS.map((p) => {
@@ -254,7 +260,7 @@ function renderSkillsPanel() {
     <div class="mats">Lv${skills.level} · XP ${Math.floor(skills.xp)}/${skills.xpNeed()} · 技能點 <span style="color:#e5a13c">${skills.points}</span></div>
     ${rows}
     <div class="mats" style="margin:10px 0 2px">── 熟練度(做什麼練什麼)──</div>${profRows}
-    <div class="hint">按數字鍵加點(每點 1 技能點) · K/Tab 關閉</div>`;
+    <div class="hint">按左邊標示的鍵加點(每點 1 技能點) · K/Tab 關閉</div>`;
 }
 
 function renderChestPanel() {
@@ -272,6 +278,119 @@ function renderChestPanel() {
     <div class="mats">背包:</div>${invRows}<div class="mats">箱內:</div>${boxRows}<div class="hint">Tab 關閉</div>`;
 }
 
+// ── NPC 對話 / 交易 / 送禮(M8f,規格 7.8)──
+let talkNpc = null;
+let talkLine = '';       // 面板上方那句話(招呼語或剛打聽到的消息)
+let talkActions = [];    // 數字鍵 → 動作
+
+// 每次 push 完動作馬上呼叫,標出對應的鍵(交易清單可能超過 9 項,延伸到 0 - =)
+const actionRow = (label) =>
+  `<div class="recipe"><span class="k">[${KEY_LABELS[talkActions.length - 1] ?? '·'}]</span> ${label}</div>`;
+
+function repLine(npc) {
+  const f = npc.def.faction;
+  const rel = f
+    ? `${FACTIONS[f].icon} ${FACTIONS[f].name} · ${npcs.repLabel(f)}(${npcs.repOf(f)}/100)`
+    : '🙋 獨行者 · 中立';
+  return `${rel}　你的瓶蓋 🔘${inventory.count('caps')}`;
+}
+
+function renderTalkPanel() {
+  const npc = talkNpc;
+  talkActions = [];
+  const rows = [];
+  if (npc.def.trade) {
+    talkActions.push({ act: 'trade' });
+    rows.push(actionRow(npcs.canTrade(npc) ? '交易(看貨)' : '交易 <span class="req">(聲望 20 以上才談)</span>'));
+  }
+  talkActions.push({ act: 'rumor' });
+  rows.push(actionRow('打聽消息'));
+  if (npc.def.faction) {
+    talkActions.push({ act: 'gift' });
+    rows.push(actionRow('送禮 <span class="req">(提升陣營聲望)</span>'));
+  }
+  talkActions.push({ act: 'close' });
+  rows.push(actionRow('離開'));
+  panelEl.innerHTML = `<h2>${npc.def.icon} ${npc.def.name}</h2>
+    <div class="mats">${talkLine}</div>
+    <div class="mats">${repLine(npc)}</div>
+    ${rows.join('')}
+    <div class="hint">按數字選擇 · E/Tab 離開</div>`;
+}
+
+function renderTradePanel() {
+  const npc = talkNpc;
+  talkActions = [];
+  const buyRows = [...npc.stock.items.entries()].filter(([id]) => PRICES[id]).slice(0, 5).map(([id, n]) => {
+    talkActions.push({ act: 'buy', id });
+    return actionRow(`${ITEMS[id].icon}${ITEMS[id].name} ×${n} <span class="req">🔘${npcs.buyPrice(npc, id)}</span>`);
+  }).join('') || '<div class="recipe no">(貨賣光了,明天再來)</div>';
+  const sellRows = npcs.sellableIds(npc, inventory).slice(0, 4).map((id) => {
+    talkActions.push({ act: 'sell', id });
+    return actionRow(`${ITEMS[id].icon}${ITEMS[id].name} ×${inventory.count(id)} <span class="req">→ 🔘${npcs.sellPrice(npc, id)}</span>`);
+  }).join('') || '<div class="recipe no">(你沒有他要的東西)</div>';
+  talkActions.push({ act: 'back' });
+  panelEl.innerHTML = `<h2>${npc.def.icon} ${npc.def.name} · 交易</h2>
+    <div class="mats">你 🔘${inventory.count('caps')}　他 🔘${npc.caps}　聲望越高買越便宜、賣越好</div>
+    <div class="mats">他賣:</div>${buyRows}
+    <div class="mats">你賣(一次一件):</div>${sellRows}
+    ${actionRow('結束交易')}`;
+}
+
+function renderGiftPanel() {
+  const npc = talkNpc;
+  talkActions = [];
+  const rows = [...inventory.items.keys()].filter((id) => id !== 'caps' && PRICES[id]).slice(0, 8)
+    .map((id) => {
+      talkActions.push({ act: 'giftItem', id });
+      return actionRow(`${ITEMS[id].icon}${ITEMS[id].name} ×${inventory.count(id)} <span class="req">→ 聲望 +${Math.round(giftValue(id) * (1 + 0.5 * skills.levelOf('persuade')))}</span>`);
+    }).join('') || '<div class="recipe no">(身上沒有拿得出手的東西)</div>';
+  talkActions.push({ act: 'back' });
+  panelEl.innerHTML = `<h2>${npc.def.icon} 送禮</h2>
+    <div class="mats">${repLine(npc)}</div>${rows}${actionRow('算了')}`;
+}
+
+function doTalkAction(i) {
+  const a = talkActions[i - 1];
+  if (!a) return;
+  const npc = talkNpc;
+  if (a.act === 'close') { setPanel(null); return; }
+  if (a.act === 'back') { setPanel('talk'); return; }
+  if (a.act === 'gift') { setPanel('gift'); return; }
+  if (a.act === 'trade') {
+    if (!npcs.canTrade(npc)) {
+      talkLine = '「先證明你不是麻煩,再來談生意。」';
+      sfx.play('uiOff');
+      renderTalkPanel();
+    } else {
+      setPanel('trade');
+    }
+    return;
+  }
+  if (a.act === 'rumor') {
+    talkLine = npcs.rumor(npc).msg;
+    sfx.play('talk');
+    renderTalkPanel();
+    return;
+  }
+  if (a.act === 'buy' || a.act === 'sell') {
+    const res = a.act === 'buy' ? npcs.buy(npc, a.id, inventory) : npcs.sell(npc, a.id, inventory);
+    toast(res.msg);
+    if (res.traded) { sfx.play('caps'); gainXp(XP.trade); } else sfx.play('uiOff');
+    renderTradePanel();
+    updateQuickbar();
+    return;
+  }
+  if (a.act === 'giftItem') {
+    const res = npcs.gift(npc, a.id, inventory);
+    toast(res.msg);
+    if (res.rep > 0) { sfx.play('talk'); gainXp(XP.gift); } else sfx.play('uiOff');
+    talkLine = res.rep > 0 ? '「……謝了。這年頭沒人白給東西。」' : talkLine;
+    setPanel('talk');
+    updateQuickbar();
+  }
+}
+
 function setPanel(mode) {
   if (mode && !panelMode) sfx.play('ui');
   else if (!mode && panelMode) sfx.play('uiOff');
@@ -282,6 +401,9 @@ function setPanel(mode) {
   else if (mode === 'build') renderBuildPanel();
   else if (mode === 'chest') renderChestPanel();
   else if (mode === 'skills') renderSkillsPanel();
+  else if (mode === 'talk') renderTalkPanel();
+  else if (mode === 'trade') renderTradePanel();
+  else if (mode === 'gift') renderGiftPanel();
 }
 
 function doChestTransfer(digit) {
@@ -346,8 +468,17 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyE') {
-    const sel = findInteraction(player, inventory, enemies, buildings, vehicles);
+    // 對話中按 E = 離開對話(不然會原地重開一次)
+    if (panelMode === 'talk' || panelMode === 'trade' || panelMode === 'gift') { setPanel(null); return; }
+    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs);
     if (!sel) return;
+    if (sel.kind === 'npc') { // NPC 交談(M8f)
+      talkNpc = sel.npc;
+      talkLine = npcs.greeting(sel.npc);
+      sfx.play('talk');
+      setPanel('talk');
+      return;
+    }
     if (sel.kind === 'door') { buildings.toggleDoor(sel.b); return; }
     if (sel.kind === 'vehicle' || sel.kind === 'carwreck') {
       const wasDriving = !!vehicles.driving;
@@ -383,7 +514,24 @@ addEventListener('keydown', (e) => {
     if (panelMode === 'craft') renderCraftPanel();
     return;
   }
-  const digit = e.code.startsWith('Digit') ? parseInt(e.code.slice(5)) : 0;
+  // 技能樹超過 9 項後,格子鍵延伸到 0 - =(面板會標出對應的鍵);其餘面板仍只吃 1-9
+  const slot = PANEL_KEYS.indexOf(e.code) + 1;
+  const digit = slot >= 1 && slot <= 9 ? slot : 0;
+  if (slot >= 1 && (panelMode === 'talk' || panelMode === 'trade' || panelMode === 'gift')) {
+    doTalkAction(slot);
+    return;
+  }
+  if (slot >= 1 && panelMode === 'skills') {
+    // 格子鍵 = 技能加點(1-9 0 - =)
+    const def = SKILL_DEFS[slot - 1];
+    if (def) {
+      const msg = skills.up(def.id);
+      if (msg) { toast(msg); sfx.play('skill'); }
+      else { toast(skills.points <= 0 ? '沒有技能點——升級才會獲得' : '這個技能已滿級'); sfx.play('uiOff'); }
+      renderSkillsPanel();
+    }
+    return;
+  }
   if (digit >= 1) {
     if (panelMode === 'craft') {
       // 數字 = 製作
@@ -405,15 +553,6 @@ addEventListener('keydown', (e) => {
           sfx.play('uiOff');
         }
         renderCraftPanel();
-      }
-    } else if (panelMode === 'skills') {
-      // 數字 = 技能加點
-      const def = SKILL_DEFS[digit - 1];
-      if (def) {
-        const msg = skills.up(def.id);
-        if (msg) { toast(msg); sfx.play('skill'); }
-        else { toast(skills.points <= 0 ? '沒有技能點——升級才會獲得' : '這個技能已滿級'); sfx.play('uiOff'); }
-        renderSkillsPanel();
       }
     } else if (panelMode === 'build') {
       // 數字 = 選擇建造物,進入放置模式
@@ -509,7 +648,6 @@ if (params.has('pos')) {
 }
 if (params.has('yaw')) player.yaw = (parseFloat(params.get('yaw')) || 0) * Math.PI / 180;
 if (params.has('xp')) skills.addXp(parseInt(params.get('xp')) || 0); // 測試技能樹用
-if (params.has('panel')) setPanel(params.get('panel')); // 直接開指定面板(截圖驗證 UI 用)
 if (params.has('prop')) { // 吃東西手持模型凍在動畫中段(截圖驗證用)
   showConsumeFx(params.get('prop'));
   consumeT = CONSUME_DUR * 0.5;
@@ -523,12 +661,27 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
 }
 if (params.has('equip')) combat.equip(params.get('equip')); // 配 ?items= 用,截圖驗證手持模型
 if (params.has('repair')) vehicles.repairAll();             // 全載具修好加滿油(試駕/截圖用)
+if (params.has('rep')) { // ?rep=ark:80,rust:5 直接設陣營聲望(測交易價格用)
+  for (const part of params.get('rep').split(',')) {
+    const [f, v] = part.split(':');
+    if (npcs.rep[f] !== undefined) npcs.rep[f] = Math.max(0, Math.min(100, parseInt(v) || 0));
+  }
+}
+// 直接開指定面板(截圖驗證 UI 用);要在 items/equip 之後,面板才看得到給的物品
+if (params.has('panel')) {
+  const pm = params.get('panel');
+  if (['talk', 'trade', 'gift'].includes(pm) && npcs.npcs.length) {
+    talkNpc = npcs.npcs[parseInt(params.get('npc')) || 0] || npcs.npcs[0];
+    talkLine = npcs.greeting(talkNpc);
+  }
+  setPanel(pm);
+}
 
 // ── 存讀檔(M7.5)──
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -698,6 +851,7 @@ function loop() {
   stats.update(dt, dt * timeSystem.hoursPerRealSecond);
   timeSystem.update(dt, player.position);
   enemies.update(dt, player, stats, timeSystem.nightFactor, elapsed, buildings);
+  npcs.update(dt, player.position, timeSystem.day); // 靠近時轉頭看你 + 每天補貨
   combat.update(dt);
   updateConsumeFx(dt);
   buildings.update(dt);
@@ -718,7 +872,7 @@ function loop() {
       promptEl.classList.remove('hidden');
       promptEl.innerHTML = `<b>左鍵</b> 放置${buildings.placing.name}(${costText(buildings.placing)}) · <b>B</b> 取消`;
     } else {
-      const sel = findInteraction(player, inventory, enemies, buildings, vehicles);
+      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs);
       promptEl.classList.toggle('hidden', !sel);
       if (sel) promptEl.innerHTML = `<b>E</b> ${sel.label}`;
     }

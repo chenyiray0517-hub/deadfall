@@ -30,7 +30,9 @@
 - [x] **M8d 熟練度軌**(2026-07-13):規格 7.7 雙軌的另一半——做什麼練什麼,不吃技能點,4 軌各 5 級:跑步(體力上限+4/級)/烹飪(烹飪品效果+10%/級)/槍械(冷卻-5%/級,「後座力下降」等效)/近戰(體力消耗-5%/級);K 面板下方顯示進度,含存讀檔(舊檔相容)
 - [x] **全套音效**(2026-07-18):Web Audio 程序化合成 52 種音效 + 4 種循環音,涵蓋所有動作(腳步/戰鬥/感染者/建造/載具/UI…),M 鍵靜音
 - [x] **M8e 摩托車與巴士**(2026-07-30):補齊規格 7.5 的四種載具——摩托車(快/省油/噪音中)+ 巴士(進階,改裝成移動據點:車廂儲物 + 車尾臥鋪重生點 + 重型衝撞);皮卡貨斗一併變成移動倉庫
-- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支)
+- [x] **M8f-1 NPC 與交易**(2026-07-30):7 個 NPC(流浪商人×2/方舟醫生/白衣會研究員/倖存者×3)+ E 交談面板(交易/打聽消息/送禮)+ 瓶蓋貨幣 + 三陣營聲望(影響買賣價)+ 技能樹社交分支(交易折扣/口才)
+- [ ] M8f-2 任務與招募:J 鍵任務面板、支線任務、招募倖存者跟隨 → 回據點工作與吃喝
+- [ ] M8f-3 敵對與主線:鏽爪幫掠奪者(伏擊/突襲據點)、白衣會血清主線、三結局
 
 ## 架構備忘
 
@@ -127,6 +129,18 @@
   - 介面:`sfx.play(name, {vol,pan})` 2D 音;`sfx.play3d(name, x, z, {vol,dist})` 世界音(距離平方衰減 + StereoPanner 左右定位,基準 = `sfx.setListener(x,z,yaw)`,main 每幀 `updateAudio()` 更新);`sfx.setLoop(name, on, {vol,rate})` 循環音(engine/bike/campfire/heartbeat,緩衝區程序化生成、頻率取整數週期無縫循環);`sfx.toggleMute()` M 鍵靜音(localStorage `deadfall_muted`,獨立於遊戲存檔)。
   - 掛載點:Player(腳步依步幅累積距離/跳/落地)、Stats 新增 `onDamage` callback(僅 amount>=1,飢渴逐幀小扣血不響;保持純邏輯 node 可測)、Combat(揮/命中/砍樹/斷裂/弓/槍/空槍/裝備)、Zombies(低吼排程 `nextGrowl`、奔跑者尖叫、受擊/死亡——zdie 放在擊殺處不放 `die()` 內,免得讀檔還原屍體時響)、Building(`toggleDoor(b, silent)` 讀檔傳 silent;`damage` 只在 dmg>=5 響,尖刺自然磨損不響)、Vehicles(搥車/撞擊/沒油/拋錨)、main(吃喝/製作/建造/UI/技能/屍潮/感染/死亡/晨鳥)。
   - `_test_sound.html`:手動試聽頁(52 種一鍵播放 + 5 種循環音開關 + 3D 定位測試);頁面會自動核對 SOUNDS 表有沒有漏列。
+- M8f-1 NPC/陣營/交易架構(2026-07-30):
+  - 全在 `src/entities/Npc.js`:FACTIONS(ark 方舟聚落/white 白衣會/rust 鏽爪幫,各有起始聲望)+ PRICES(瓶蓋基準價,**沒列在 PRICES 的東西不能交易**)+ NPC_TYPES(trader/medic/scientist/survivor,含招呼語與情報台詞)+ Npc + NpcManager。UI 一律留在 main.js,這裡只回資料與訊息字串,所以能 headless 純邏輯測。
+  - 生成:固定 seed 8135,從 `structureSpots` 挑建築、往外 6~9m 找空地站(彼此至少距離 25m)。**存讀檔依生成順序索引**,跟載具同一套規矩:要加新 NPC 就往 `spawnAll` 後面接。
+  - 站著不動,只會轉頭看你(`update` 只算 14m 內的);每天第一次靠近會 `restock`(賣光的貨隔天補回、瓶蓋補回上限)。
+  - 碰撞:NPC 有一顆 `colliders.circles` 的圓(r 0.45)。因此 **樹的碰撞圓現在多帶 `tree: true`**,`Combat.chopTree` 只認這個旗標——不然斧頭會把 NPC 當柴砍。
+  - 價格:買價 = 基準 ×(1.2 − 0.4×聲望/100)×(1 − 0.1×交易折扣等級);賣價 = 基準 ×(0.45 + 0.25×聲望/100)×(1 + 0.1×等級)。聲望 < 20 不做生意。商人自己的瓶蓋有限(你賣太多他會收不下),隔天回補。
+  - 瓶蓋 `caps` 是一般物品(補給箱/垃圾堆/櫃台/辦公桌會掉,一次 6~20 個),所以死亡一樣掉一半、可以放進儲物箱。
+  - main 的面板模式多了 `talk`/`trade`/`gift`,三個共用 `talkActions`(陣列索引 = 格子鍵)+ `talkLine`(面板上方那句話);對話中按 E 或 Tab 關閉。
+  - **格子鍵擴充**:技能樹加了社交分支後超過 9 項,main 的 `PANEL_KEYS`/`KEY_LABELS` 把格子鍵延伸成 1-9 0 - =,技能樹與對話面板都吃這組(其他面板仍只吃 1-9)。面板會標出對應鍵,不要再假設「第 n 項 = 數字 n」。
+  - 目前 NPC 打不到也不會被感染者攻擊(沒有 HP);敵對與死亡等 M8f-3 的鏽爪幫一起做。
+  - 開發參數:`?panel=talk|trade|gift&npc=索引` 直接開對話面板(要放在 `?items=` 之後才吃得到背包)、`?rep=ark:80,rust:5` 設陣營聲望。
+  - `_test_npc.html`:NPC/交易/聲望邏輯測試頁(36 條),headless --dump-dom 跑。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

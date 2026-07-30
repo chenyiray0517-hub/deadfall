@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const { Skills, SKILL_DEFS } = await import('./src/player/Skills.js');
+  const N = await import('./src/entities/Npc.js');
+  const I = await import('./src/systems/Interaction.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const mgr = new N.NpcManager(fakeScene);
+
+  // ── 資料與生成 ──
+  test('三大陣營齊全', ['ark', 'white', 'rust'].every((f) => N.FACTIONS[f]?.name));
+  test('瓶蓋是物品', !!ITEMS.caps);
+  test('NPC 有生成', mgr.npcs.length >= 5, `n=${mgr.npcs.length}`);
+  test('商人/醫生/研究員/倖存者都在',
+    ['trader', 'medic', 'scientist', 'survivor'].every((t) => mgr.npcs.some((n) => n.type === t)),
+    mgr.npcs.map((n) => n.type).join());
+  test('NPC 不會擠在一起', mgr.npcs.every((a, i) =>
+    mgr.npcs.every((b, j) => i === j || Math.hypot(a.x - b.x, a.z - b.z) > 20)));
+  test('NPC 有碰撞圓且不是樹',
+    T.colliders.circles.some((c) => c.tree === false) &&
+    mgr.npcs.every((n) => T.colliders.circles.includes(n.collider)));
+
+  const trader = mgr.npcs.find((n) => n.type === 'trader');
+  const survivor = mgr.npcs.find((n) => n.type === 'survivor');
+  test('初始聲望 = 陣營預設',
+    mgr.repOf('ark') === N.FACTIONS.ark.start && mgr.repLabel('ark') === '中立', `${mgr.repOf('ark')}`);
+
+  // ── 互動判定 ──
+  const near = { position: { x: trader.x + 1, y: 0, z: trader.z }, };
+  const inv = new Inventory();
+  const sel = I.findInteraction(near, inv, null, null, null, mgr);
+  test('走近可交談', sel?.kind === 'npc' && sel.npc === trader, sel?.label);
+  const far = I.findInteraction({ position: { x: trader.x + 40, y: 0, z: trader.z } }, inv, null, null, null, mgr);
+  test('離遠了就沒有', !far || far.kind !== 'npc');
+
+  // ── 對話 ──
+  const g1 = mgr.greeting(trader);
+  const g2 = mgr.greeting(trader);
+  test('第一次見面講招呼語', g1 === N.NPC_TYPES.trader.greet && g2 !== g1, g2);
+  const r1 = mgr.rumor(trader);
+  const r2 = mgr.rumor(trader);
+  test('打聽消息會換句話', r1.msg !== r2.msg && r1.msg.includes('「'));
+  test('第一次打聽小加聲望', r1.rep === 1 && r2.rep === 0);
+
+  // ── 交易 ──
+  const price = mgr.buyPrice(trader, 'canned');
+  test('買價高於基準(中立)', price > N.PRICES.canned * 0.9, `${price} vs ${N.PRICES.canned}`);
+  test('賣價低於買價', mgr.sellPrice(trader, 'canned') < price);
+  test('不能交易的東西沒有價格', mgr.buyPrice(trader, 'caps') === null);
+
+  let res = mgr.buy(trader, 'canned', inv);
+  test('沒瓶蓋買不起', !res.traded && res.msg.includes('瓶蓋不夠'), res.msg);
+  inv.add('caps', 200);
+  const stock0 = trader.stock.count('canned');
+  const caps0 = trader.caps;
+  res = mgr.buy(trader, 'canned', inv);
+  test('買東西', res.traded && inv.count('canned') === 1 && inv.count('caps') === 200 - price &&
+    trader.stock.count('canned') === stock0 - 1 && trader.caps === caps0 + price, res.msg);
+
+  inv.add('cloth', 3);
+  const sp = mgr.sellPrice(trader, 'cloth');
+  const capsBefore = inv.count('caps');
+  res = mgr.sell(trader, 'cloth', inv);
+  test('賣東西', res.traded && inv.count('cloth') === 2 && inv.count('caps') === capsBefore + sp, res.msg);
+  test('賣掉的東西進他的庫存', trader.stock.count('cloth') > 0);
+  trader.caps = 0;
+  test('他沒瓶蓋就收不了', !mgr.sell(trader, 'cloth', inv).traded);
+  trader.caps = 200;
+
+  // ── 聲望影響價格 ──
+  mgr.rep.ark = 100;
+  const cheap = mgr.buyPrice(trader, 'canned');
+  const rich = mgr.sellPrice(trader, 'canned');
+  mgr.rep.ark = 0;
+  test('聲望高買得便宜', cheap < mgr.buyPrice(trader, 'canned'), `${cheap} → ${mgr.buyPrice(trader, 'canned')}`);
+  test('聲望高賣得好', rich > mgr.sellPrice(trader, 'canned'));
+  test('聲望太低不做生意', !mgr.canTrade(trader) && mgr.buy(trader, 'canned', inv).msg.includes('聲望'));
+  mgr.rep.ark = N.FACTIONS.ark.start;
+
+  // ── 交易折扣技能(社交分支)──
+  const skills = new Skills();
+  mgr.skills = skills;
+  const base = mgr.buyPrice(trader, 'pistol');
+  skills.points = 2;
+  test('社交分支存在', SKILL_DEFS.some((s) => s.id === 'barter' && s.branch === '社交'));
+  skills.up('barter');
+  test('交易折扣讓買價變便宜', mgr.buyPrice(trader, 'pistol') < base,
+    `${base} → ${mgr.buyPrice(trader, 'pistol')}`);
+  test('交易折扣讓賣價變好', mgr.sellPrice(trader, 'pistol') > Math.floor(N.PRICES.pistol * 0.45));
+
+  // ── 送禮與口才 ──
+  const rep0 = mgr.repOf('ark');
+  inv.add('antibiotic', 2);
+  res = mgr.gift(trader, 'antibiotic', inv);
+  test('送禮加聲望', res.rep > 0 && mgr.repOf('ark') > rep0 && inv.count('antibiotic') === 1, res.msg);
+  skills.points = 1;
+  skills.up('persuade');
+  const repA = mgr.repOf('ark');
+  mgr.gift(trader, 'antibiotic', inv);
+  test('口才讓送禮更有效', mgr.repOf('ark') - repA >= res.rep, `+${mgr.repOf('ark') - repA} vs +${res.rep}`);
+  test('無陣營的散人不吃送禮', !mgr.gift(survivor, 'canned', inv).rep);
+  test('聲望有上限 100', (mgr.addRep('ark', 999), mgr.repOf('ark') === 100));
+
+  // ── 每日補貨 ──
+  trader.stock.items.delete('canned');
+  test('賣光了當天不會自己冒出來', !trader.restock(trader.restockDay));
+  trader.restock(trader.restockDay + 1);
+  test('隔天補貨', trader.stock.count('canned') === N.NPC_TYPES.trader.stock.canned);
+
+  // ── 存讀檔 ──
+  mgr.rep.white = 77;
+  trader.caps = 33;
+  const data = mgr.serialize();
+  const mgr2 = new N.NpcManager(fakeScene);
+  mgr2.loadFrom(data);
+  const t2 = mgr2.npcs[mgr.npcs.indexOf(trader)];
+  test('存讀:聲望還原', mgr2.repOf('white') === 77 && mgr2.repOf('ark') === mgr.repOf('ark'));
+  test('存讀:商人瓶蓋與庫存還原',
+    t2.caps === 33 && t2.stock.count('cloth') === trader.stock.count('cloth'));
+  test('存讀:對話進度還原', t2.metOnce === trader.metOnce && t2.rumorIdx === trader.rumorIdx);
+  const mgr3 = new N.NpcManager(fakeScene);
+  mgr3.loadFrom(null);
+  test('舊檔沒有 NPC 欄位也能跑', mgr3.repOf('ark') === N.FACTIONS.ark.start && mgr3.npcs.length === mgr.npcs.length);
+
+  out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
+} catch (err) {
+  out.push('ERROR ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>
+</body></html>

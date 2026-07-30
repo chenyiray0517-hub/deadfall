@@ -1,4 +1,4 @@
-// 技能與成長系統(規格 7.7「用進廢退 + 技能點雙軌」;社交分支等 NPC 做了再加)
+// 技能與成長系統(規格 7.7「用進廢退 + 技能點雙軌」)
 // 純邏輯、不 import three,可直接用 node 跑模擬測試
 //
 // 技能點軌:XP 來源(main.js 呼叫 addXp)= 擊殺(依感染者 TYPES.xp)/搜刮/採集/製作/建造/每存活一天,
@@ -18,6 +18,9 @@ export const SKILL_DEFS = [
   { id: 'artisan',  branch: '製作', icon: '🔨', name: '巧手工匠', max: 1, desc: () => '製作/建造材料 -20%' },
   { id: 'builder',  branch: '製作', icon: '🏗', name: '建築師',   max: 1, desc: () => '新建築耐久 +50%' },
   { id: 'medic',    branch: '製作', icon: '🩹', name: '急救專精', max: 1, desc: () => '繃帶回復 15 → 25 HP' },
+  // ── 社交(M8f;領袖魅力等招募做好再補,新技能一律往後append,數字鍵才不會位移)──
+  { id: 'barter',   branch: '社交', icon: '💰', name: '交易折扣', max: 2, desc: (lv) => `買價 -${10 * lv}%、賣價 +${10 * lv}%` },
+  { id: 'persuade', branch: '社交', icon: '💬', name: '口才',     max: 2, desc: (lv) => `送禮的聲望加成 +${50 * lv}%` },
 ];
 
 // 熟練度軌(規格 7.7:常跑步→體力上限、常做菜→烹飪回復、常用槍→後座力;近戰是主要戰鬥手段,補一軌)
@@ -149,4 +152,4 @@ export class Skills {
 }
 
 // 各行為的 XP 值(擊殺另見 Zombies TYPES.xp)
-export const XP = { loot: 3, gather: 2, corpse: 2, craft: 4, build: 5, day: 25 };
+export const XP = { loot: 3, gather: 2, corpse: 2, craft: 4, build: 5, day: 25, trade: 2, gift: 6 };

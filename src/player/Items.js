@@ -125,6 +125,8 @@ export const ITEMS = {
   fuel: { name: '汽油桶', icon: '⛽' },
   ammo9: { name: '9mm 彈', icon: '•' },
   shell: { name: '霰彈', icon: '🔴' },
+  // ── 貨幣(M8f,規格 7.8:方舟聚落用瓶蓋交易)──
+  caps: { name: '瓶蓋', icon: '🔘' },
 };
 
 // 快捷欄:依此優先序顯示「持有的」消耗品,最多 8 格

@@ -219,7 +219,7 @@ function scatterNature(group) {
     );
     trunks.setMatrixAt(count, m);
     crowns.setMatrixAt(count, m);
-    colliders.circles.push({ x, z, r: 0.35 * s });
+    colliders.circles.push({ x, z, r: 0.35 * s, tree: true }); // tree = 斧頭砍得到(NPC 的碰撞圓沒這個旗標)
     count++;
   }
   trunks.count = crowns.count = count;

@@ -231,6 +231,17 @@ const SOUNDS = {
     for (let i = 0; i < 2; i++) tone({ delay: 0.18 + i * 0.12, f0: rnd(550, 750), f1: rnd(850, 1000), dur: 0.05, vol: 0.12 });
   },
   // ── UI/系統 ──
+  // 交易:一把瓶蓋倒在桌上(M8f)
+  caps: () => {
+    for (let i = 0; i < 5; i++) {
+      tone({ delay: i * 0.045, f0: rnd(1500, 2600), type: 'triangle', dur: 0.05, vol: 0.14 });
+    }
+    noise({ dur: 0.18, vol: 0.14, type: 'highpass', f0: 2200 });
+  },
+  talk: () => { // 交談開場的悶悶人聲(不做語音,只給一個「有人在講話」的提示)
+    tone({ f0: 190, f1: 150, type: 'sawtooth', dur: 0.12, vol: 0.16, lp: 700 });
+    tone({ delay: 0.15, f0: 165, f1: 205, type: 'sawtooth', dur: 0.1, vol: 0.13, lp: 700 });
+  },
   ui: () => tone({ f0: 660, dur: 0.07, vol: 0.15 }),
   uiOff: () => tone({ f0: 440, dur: 0.07, vol: 0.12 }),
   skill: () => {

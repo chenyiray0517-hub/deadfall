@@ -112,6 +112,7 @@ export class Combat {
   // 面前有樹(碰撞圓)就砍下木柴
   chopTree(p, fx, fz) {
     for (const c of colliders.circles) {
+      if (!c.tree) continue; // NPC 之類的碰撞圓不是柴火
       const dx = c.x - p.x;
       const dz = c.z - p.z;
       const d = Math.hypot(dx, dz);

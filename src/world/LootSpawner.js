@@ -41,10 +41,12 @@ const CRATE_TABLE = [
   { id: 'antibiotic', w: 3 }, { id: 'serum', w: 1 },
   // M8c:載具零件與汽油(主要來源是拆廢棄車,這裡是保底)
   { id: 'tire', w: 3 }, { id: 'battery', w: 2 }, { id: 'engine', w: 1 }, { id: 'fuel', w: 3 },
+  // M8f:瓶蓋(方舟聚落的貨幣)
+  { id: 'caps', w: 14 },
 ];
 const TRASH_TABLE = [
   { id: 'cloth', w: 40 }, { id: 'scrap', w: 40 }, { id: 'canned', w: 20 },
-  { id: 'bat', w: 12 }, { id: 'ammo9', w: 8 },
+  { id: 'bat', w: 12 }, { id: 'ammo9', w: 8 }, { id: 'caps', w: 12 },
 ];
 // 室內家具掉落表(M8):商店吃喝多、辦公桌雜物彈藥多、衣櫃布料多
 const FURN_TABLES = {
@@ -59,7 +61,7 @@ const FURN_TABLES = {
   counter: [
     { id: 'canned', w: 12 }, { id: 'bottled', w: 12 }, { id: 'scrap', w: 18 },
     { id: 'ammo9', w: 12 }, { id: 'cloth', w: 10 }, { id: 'shell', w: 5 },
-    { id: 'antibiotic', w: 4 }, { id: 'pistol', w: 3 },
+    { id: 'antibiotic', w: 4 }, { id: 'pistol', w: 3 }, { id: 'caps', w: 20 },
   ],
   cabinet: [
     { id: 'canned', w: 20 }, { id: 'bottled', w: 14 }, { id: 'cloth', w: 18 },
@@ -72,7 +74,7 @@ const FURN_TABLES = {
   desk: [
     { id: 'scrap', w: 22 }, { id: 'ammo9', w: 12 }, { id: 'cloth', w: 10 },
     { id: 'empty', w: 10 }, { id: 'bandage', w: 6 }, { id: 'antibiotic', w: 6 },
-    { id: 'pistol', w: 2 }, { id: 'serum', w: 1 },
+    { id: 'pistol', w: 2 }, { id: 'serum', w: 1 }, { id: 'caps', w: 16 },
   ],
 };
 
@@ -80,6 +82,7 @@ const FURN_TABLES = {
 const rollCount = (id) =>
   id === 'ammo9' ? 4 + Math.floor(Math.random() * 3)
   : id === 'shell' ? 2 + Math.floor(Math.random() * 2)
+  : id === 'caps' ? 6 + Math.floor(Math.random() * 15)  // 瓶蓋一次撿一小把
   : 1;
 
 export function rollLoot(type) {
