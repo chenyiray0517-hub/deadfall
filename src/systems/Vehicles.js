@@ -4,11 +4,12 @@ import {
   colliders, isDeepWater, insideAnyBox, mulberry32,
 } from '../world/Terrain.js';
 import { structureSpots } from '../world/Structures.js';
-import { ITEMS } from '../player/Items.js';
+import { ITEMS, Inventory } from '../player/Items.js';
 import { sfx } from '../core/Sound.js';
 
-// 載具(M8c,規格 7.5 起步集:腳踏車 + 皮卡;摩托/巴士之後再加)
-// 修理需要零件(引擎/輪胎/電瓶,從廢棄車拆或補給箱找)+ 廢金屬;皮卡另需汽油(廢棄車虹吸)
+// 載具(M8c 腳踏車/皮卡;M8e 補上規格 7.5 的摩托車與巴士)
+// 修理需要零件(引擎/輪胎/電瓶,從廢棄車拆或補給箱找)+ 廢金屬;有油箱的另需汽油(廢棄車虹吸)
+// storage = 後車廂(移動倉庫,死亡不掉落);bunk = 車上臥鋪(睡覺 + 移動重生點)
 export const VEHICLE_TYPES = {
   bike: {
     name: '腳踏車', icon: '🚲',
@@ -16,7 +17,17 @@ export const VEHICLE_TYPES = {
     maxSpeed: 8.5, reverse: 2, accel: 5.5, turn: 2.3,
     hp: 40, fuelMax: 0, fuelUse: 0, noise: 0,      // 無聲、不耗油(前期神器)
     radius: 0.55, boxHalf: 0.6, camBack: 4.6, camUp: 2.5, ram: false,
-    color: '#8a4030',
+    noLos: true, color: '#8a4030',
+    sound: { name: 'bike', vol: [0.4, 0.6], rate: [0.6, 1.8], coast: true },
+  },
+  moto: {
+    name: '摩托車', icon: '🏍️',
+    needs: { engine: 1, tire: 2, scrap: 3 },       // 不用電瓶——腳踩發動
+    maxSpeed: 22, reverse: 3, accel: 11, turn: 2.6,
+    hp: 55, fuelMax: 20, fuelUse: 0.12, noise: 22, // 快、省油、噪音中(規格 7.5)
+    radius: 0.7, boxHalf: 0.75, camBack: 5.8, camUp: 2.8, ram: false,
+    noLos: true, color: '#3f4a5a',
+    sound: { name: 'moto', vol: [0.5, 0.5], rate: [0.75, 1.5] },
   },
   pickup: {
     name: '皮卡車', icon: '🛻',
@@ -24,7 +35,18 @@ export const VEHICLE_TYPES = {
     maxSpeed: 16, reverse: 4.5, accel: 7, turn: 1.6,
     hp: 100, fuelMax: 40, fuelUse: 0.25, noise: 35, // 引擎聲沿路引怪
     radius: 1.4, boxHalf: 1.6, camBack: 8, camUp: 3.8, ram: true,
-    color: '#7a5030',
+    storage: 1.0, color: '#7a5030',                 // 貨斗 = 移動倉庫(規格 7.5)
+    sound: { name: 'engine', vol: [0.7, 0.3], rate: [0.7, 1.2] },
+  },
+  bus: {
+    name: '巴士', icon: '🚌',
+    needs: { engine: 2, tire: 4, battery: 2, scrap: 8 }, // 進階:零件量翻倍
+    maxSpeed: 12, reverse: 3, accel: 3.2, turn: 0.85,
+    hp: 240, fuelMax: 80, fuelUse: 0.55, noise: 55,     // 又重又吵,一路把感染者帶著走
+    radius: 2.3, boxHalf: 2.5, camBack: 12.5, camUp: 5.2,
+    ram: true, ramFront: 3.9, ramR: 2.6, ramDmg: 26, ramSelf: 1, tiltLen: 6,
+    storage: -0.4, bunk: 2.2, color: '#5c6a52',          // 改裝成移動據點:車廂儲物 + 車尾臥鋪
+    sound: { name: 'engine', vol: [0.85, 0.25], rate: [0.45, 0.7] },
   },
 };
 
@@ -48,12 +70,14 @@ export class Vehicle {
     this.repaired = false;
     this.installed = {};      // 已裝入的零件數
     this.noiseNow = 0;
+    // 後車廂(皮卡貨斗/巴士車廂):獨立 Inventory,死亡不掉落,跟儲物箱同一套 UI
+    this.cargo = this.def.storage !== undefined ? new Inventory() : null;
 
     const built = buildVehicleMesh(type, this.def);
     this.mesh = built.group;
     this.bodyMat = built.bodyMat;
     // 移動碰撞箱:軸對齊方形近似,開動時每幀跟著更新
-    this.box = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, noLos: type === 'bike' };
+    this.box = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, noLos: !!this.def.noLos };
     colliders.boxes.push(this.box);
     this.syncBox();
     this.syncMesh();
@@ -85,8 +109,15 @@ export class Vehicle {
     this.box.minZ = this.z - h; this.box.maxZ = this.z + h;
   }
 
+  // 站在車的哪一段?回傳「在車中心後方幾公尺」(負值 = 在車頭那側)
+  // 用來分區互動:車頭上車、車身開車廂、車尾睡臥鋪
+  rearOffset(pos) {
+    const fx = -Math.sin(this.heading), fz = -Math.cos(this.heading);
+    return -((pos.x - this.x) * fx + (pos.z - this.z) * fz);
+  }
+
   syncMesh() {
-    const L = 2.4; // 前後取樣距離(貼地傾斜用)
+    const L = this.def.tiltLen ?? 2.4; // 前後取樣距離(貼地傾斜用)
     const fx = -Math.sin(this.heading), fz = -Math.cos(this.heading);
     const hC = terrainHeight(this.x, this.z);
     const hF = terrainHeight(this.x + fx * L / 2, this.z + fz * L / 2);
@@ -108,7 +139,39 @@ function buildVehicleMesh(type, def) {
     g.add(m);
     return m;
   };
-  if (type === 'pickup') {
+  if (type === 'bus') {
+    // 巴士(車頭朝 -z):長車廂 + 兩排窗 + 車尾臥鋪那格塗深色
+    box(2.3, 1.9, 7.2, bodyMat, 0, 1.75, 0);          // 車廂
+    box(2.32, 0.55, 5.4, darkMat, 0, 2.3, 0.2);       // 側窗帶
+    box(1.9, 0.7, 0.1, darkMat, 0, 2.25, -3.62);      // 前擋風
+    box(0.9, 1.5, 0.08, darkMat, 0.72, 1.6, -3.63);   // 車門(右前)
+    box(2.34, 0.12, 7.24, darkMat, 0, 0.85, 0);       // 底裙
+    const wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.36, 12);
+    for (const [wx, wz] of [[-1.1, -2.5], [1.1, -2.5], [-1.1, 2.2], [1.1, 2.2], [-1.1, 3.0], [1.1, 3.0]]) {
+      const w = new THREE.Mesh(wheelGeo, darkMat);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(wx, 0.62, wz);
+      w.castShadow = true;
+      g.add(w);
+    }
+  } else if (type === 'moto') {
+    // 摩托車(車頭朝 -z):油箱 + 座墊 + 前叉,輪子比腳踏車粗
+    const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.16, 12);
+    for (const wz of [-0.72, 0.72]) {
+      const w = new THREE.Mesh(wheelGeo, darkMat);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(0, 0.36, wz);
+      w.castShadow = true;
+      g.add(w);
+    }
+    box(0.36, 0.34, 0.8, bodyMat, 0, 0.78, -0.1);   // 油箱
+    box(0.3, 0.16, 0.6, darkMat, 0, 0.86, 0.5);     // 座墊
+    box(0.22, 0.3, 0.5, darkMat, 0, 0.5, 0.1);      // 引擎
+    const fork = box(0.1, 0.72, 0.1, bodyMat, 0, 0.66, -0.66);
+    fork.rotation.x = 0.35;                          // 前叉
+    box(0.62, 0.06, 0.07, darkMat, 0, 1.02, -0.62); // 手把
+    box(0.2, 0.18, 0.1, darkMat, 0, 0.98, -0.76);   // 頭燈
+  } else if (type === 'pickup') {
     box(1.9, 0.5, 4.2, bodyMat, 0, 0.75, 0);            // 底盤(車頭朝 -z)
     box(1.75, 0.75, 1.6, bodyMat, 0, 1.35, -0.5);       // 駕駛艙
     box(1.5, 0.35, 1.1, darkMat, 0, 1.5, -0.55);        // 車窗
@@ -144,7 +207,8 @@ export class VehicleManager {
     this.scene = scene;
     this.vehicles = [];
     this.driving = null;
-    this.toast = null; // main 掛上;測試環境不用
+    this.homeBunk = null; // 最後睡過的巴士臥鋪 = 會移動的重生點(main 讀)
+    this.toast = null;    // main 掛上;測試環境不用
     // 廢棄車搜刮點(虹吸汽油 + 拆零件,每輛一次)
     this.carSpots = structureSpots
       .filter((s) => s.kind === 'car')
@@ -153,18 +217,19 @@ export class VehicleManager {
     for (const v of this.vehicles) scene.add(v.mesh);
   }
 
-  // 固定 seed 沿主幹道路肩生成:腳踏車×2(鄉村)、皮卡×1 鄉村 ×1 城市
+  // 固定 seed 沿主幹道路肩生成:腳踏車×2(鄉村)、皮卡×1 鄉村 ×1 城市、摩托×2、巴士×1(城市)
+  // 新車種一律接在最後面——生成順序 = 存檔索引,插在中間會讓舊存檔對錯車
   spawnAll() {
     const rng = mulberry32(424242);
     const half = TERRAIN_SIZE / 2 - 20;
-    const place = (type, biomeKey, n) => {
+    const place = (type, biomeKey, n, clear = 2.6) => {
       let placed = 0;
       for (let tries = 0; tries < 600 && placed < n; tries++) {
         const x = (rng() * 2 - 1) * half;
         if (x < -78 * WORLD_SCALE) continue; // 主幹道從這裡才開始
         const z = mainRoadCenter(x) + (rng() < 0.5 ? -1 : 1) * (6.5 + rng() * 2);
         if (biomeWeights(x, z)[biomeKey] < 0.7) continue;
-        if (insideAnyBox(x, z, 2.6) || isDeepWater(x, z)) continue;
+        if (insideAnyBox(x, z, clear) || isDeepWater(x, z)) continue;
         this.vehicles.push(new Vehicle(type, x, z, Math.PI / 2 + (rng() - 0.5) * 0.7));
         placed++;
       }
@@ -172,13 +237,26 @@ export class VehicleManager {
     place('bike', 'rural', 2);
     place('pickup', 'rural', 1);
     place('pickup', 'urban', 1);
+    place('moto', 'rural', 1);
+    place('moto', 'urban', 1);
+    place('bus', 'urban', 1, 4.5); // 車身長,離建築遠一點
   }
 
-  nearestVehicle(pos, reach = 3.2) {
-    let best = null, bd = reach;
+  // 車越長可互動範圍越大(巴士站在車尾也要搆得到)
+  // 開發用:全部修好並加滿油(main 的 ?repair=1)
+  repairAll() {
+    for (const v of this.vehicles) {
+      v.installed = { ...v.def.needs };
+      v.setRepaired();
+      v.fuel = v.def.fuelMax;
+    }
+  }
+
+  nearestVehicle(pos) {
+    let best = null, bd = Infinity;
     for (const v of this.vehicles) {
       const d = Math.hypot(v.x - pos.x, v.z - pos.z);
-      if (d < bd) { bd = d; best = v; }
+      if (d < Math.min(bd, v.def.boxHalf + 2.2)) { bd = d; best = v; }
     }
     return best;
   }
@@ -188,6 +266,14 @@ export class VehicleManager {
     const v = this.nearestVehicle(pos);
     if (v) {
       if (!v.repaired) return { kind: 'vehicle', v, label: `修理${v.def.name}(缺 ${v.missingText()})` };
+      // 修好後依站的位置分區:車尾臥鋪 → 車廂 → 車頭駕駛
+      const rear = v.rearOffset(pos);
+      if (v.def.bunk !== undefined && rear > v.def.bunk) {
+        return { kind: 'vehicleBunk', v, label: `在${v.def.name}臥鋪睡覺(夜間快轉,設重生點)` };
+      }
+      if (v.def.storage !== undefined && rear > v.def.storage) {
+        return { kind: 'vehicleStorage', v, label: `打開${v.def.name}車廂(移動倉庫)` };
+      }
       if (v.hp <= 0) return { kind: 'vehicle', v, label: `修復${v.def.name}車體(廢金屬×3)` };
       const dry = v.def.fuelMax > 0 && v.fuel <= 0 ? '(沒油——R 加油)' : '';
       return { kind: 'vehicle', v, label: `駕駛${v.def.name}${dry}` };
@@ -239,7 +325,11 @@ export class VehicleManager {
     }
     if (Object.keys(v.missing()).length === 0) {
       v.setRepaired();
-      return { msg: `🔧 ${v.def.name}修好了!${v.def.fuelMax > 0 ? 'R 鍵加油後就能開' : 'E 上車'}`, xp: 20 };
+      const extra = v.def.bunk !== undefined
+        ? '(車頭上車 · 車身開車廂 · 車尾睡臥鋪)'
+        : v.def.storage !== undefined ? '(車尾可存放物資)' : '';
+      const hint = v.def.fuelMax > 0 ? 'R 鍵加油後就能開' : 'E 上車';
+      return { msg: `🔧 ${v.def.name}修好了!${hint}${extra}`, xp: v.def.bunk !== undefined ? 40 : 20 };
     }
     if (installed > 0) return { msg: `裝上了零件,還缺:${v.missingText()}` };
     return { msg: `零件不足——需要 ${v.missingText()}(廢棄車能拆到)` };
@@ -405,17 +495,18 @@ export class VehicleManager {
       }
     }
 
-    // 皮卡衝撞感染者(規格 7.5;每隻 0.8 秒內只判一次)
+    // 皮卡/巴士衝撞感染者(規格 7.5;每隻 0.8 秒內只判一次)
     if (v.def.ram && enemies && Math.abs(v.speed) > 4.5) {
-      const hx = v.x + fx * Math.sign(v.speed) * 2.1;
-      const hz = v.z + fz * Math.sign(v.speed) * 2.1;
+      const front = v.def.ramFront ?? 2.1;
+      const hx = v.x + fx * Math.sign(v.speed) * front;
+      const hz = v.z + fz * Math.sign(v.speed) * front;
       for (const zb of enemies.zombies) {
         if (!zb.alive || now - (zb._ramT ?? -9) < 0.8) continue;
-        if (Math.hypot(zb.pos.x - hx, zb.pos.z - hz) > 1.7) continue;
+        if (Math.hypot(zb.pos.x - hx, zb.pos.z - hz) > (v.def.ramR ?? 1.7)) continue;
         zb._ramT = now;
-        const dmg = Math.round(12 + Math.abs(v.speed) * 4);
+        const dmg = Math.round((v.def.ramDmg ?? 12) + Math.abs(v.speed) * 4);
         const killed = zb.takeDamage(dmg, { x: v.x, z: v.z }, enemies, now);
-        this.damageVehicle(v, 2);
+        this.damageVehicle(v, v.def.ramSelf ?? 2);
         v.speed *= 0.88;
         ctx.onRam?.(killed, zb);
       }
@@ -452,7 +543,8 @@ export class VehicleManager {
     if (!v) return '';
     const kmh = Math.round(Math.abs(v.speed) * 3.6);
     const fuel = v.def.fuelMax > 0 ? ` · ⛽ ${Math.round(v.fuel)}/${v.def.fuelMax}` : '';
-    return `${v.def.icon} ${kmh} km/h${fuel} · 🔧 ${Math.round(v.hp)}/${v.def.hp}`;
+    const cargo = v.cargo && v.cargo.items.size ? ` · 📦 ${v.cargo.items.size}` : '';
+    return `${v.def.icon} ${kmh} km/h${fuel} · 🔧 ${Math.round(v.hp)}/${v.def.hp}${cargo}`;
   }
 
   // ── 存讀檔:載具依生成順序(固定 seed)用索引還原;廢棄車用座標比對 ──
@@ -463,10 +555,12 @@ export class VehicleManager {
         h: Math.round(v.heading * 100) / 100,
         fuel: Math.round(v.fuel * 10) / 10, hp: Math.round(v.hp * 10) / 10,
         rep: v.repaired ? 1 : 0, inst: v.installed,
+        st: v.cargo ? [...v.cargo.items.entries()] : null, // 車廂內容(死亡不掉落)
       })),
       cars: this.carSpots.reduce((a, s) => (
         s.taken && a.push([Math.round(s.x * 10), Math.round(s.z * 10)]), a
       ), []),
+      bunk: this.homeBunk ? this.vehicles.indexOf(this.homeBunk) : -1,
     };
   }
 
@@ -481,9 +575,11 @@ export class VehicleManager {
       if (s.rep) v.setRepaired();
       v.hp = s.hp || 0;
       v.speed = 0;
+      if (v.cargo && s.st) for (const [id, n] of s.st) v.cargo.add(id, n);
       v.syncBox();
       v.syncMesh();
     });
+    this.homeBunk = this.vehicles[data.bunk] || null; // 舊檔沒有 bunk = 沒睡過巴士
     const taken = new Set((data.cars || []).map(([x, z]) => `${x}:${z}`));
     for (const s of this.carSpots) {
       if (taken.has(`${Math.round(s.x * 10)}:${Math.round(s.z * 10)}`)) s.taken = true;

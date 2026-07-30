@@ -17,7 +17,7 @@ try {
   const mgr = new V.VehicleManager(fakeScene);
 
   // ── 資料 ──
-  test('載具類型資料齊全', ['bike', 'pickup'].every((t) => {
+  test('載具類型資料齊全', ['bike', 'moto', 'pickup', 'bus'].every((t) => {
     const d = V.VEHICLE_TYPES[t];
     return d && d.needs && d.maxSpeed > 0 && d.hp > 0;
   }));
@@ -115,6 +115,52 @@ try {
   mgr.exitVehicle(fakePlayer);
   test('下車', mgr.driving === null && fakePlayer.driving === null);
 
+  // ── M8e:摩托車與巴士(規格 7.5)──
+  const moto = mgr.vehicles.find((v) => v.type === 'moto');
+  const bus = mgr.vehicles.find((v) => v.type === 'bus');
+  test('摩托/巴士都生成了', !!moto && !!bus, `n=${mgr.vehicles.length}`);
+  test('新車種排在生成序列尾端(舊存檔索引不位移)',
+    mgr.vehicles.slice(0, 4).map((v) => v.type).join() === 'bike,bike,pickup,pickup',
+    mgr.vehicles.map((v) => v.type).join());
+  const MT = V.VEHICLE_TYPES.moto, BT = V.VEHICLE_TYPES.bus, PT = V.VEHICLE_TYPES.pickup;
+  test('摩托車:快、省油、噪音中',
+    MT.maxSpeed > PT.maxSpeed && MT.fuelUse < PT.fuelUse && MT.noise > 0 && MT.noise < PT.noise);
+  test('巴士:重、耐打、耗油、可衝撞', BT.hp > PT.hp * 2 && BT.fuelUse > PT.fuelUse && BT.ram === true);
+  test('只有皮卡/巴士有車廂', !!pickup.cargo && !!bus.cargo && moto.cargo === null && bike.cargo === null);
+
+  // 分區互動:車頭駕駛 / 車身車廂 / 車尾臥鋪
+  bus.setRepaired();
+  bus.heading = 0; // 車頭朝 -z,+dz = 車尾方向
+  const atBus = (dz) => mgr.findInteraction({ x: bus.x, z: bus.z + dz });
+  test('巴士車頭 = 駕駛', atBus(-1.5).kind === 'vehicle', atBus(-1.5).label);
+  test('巴士車身 = 車廂', atBus(1).kind === 'vehicleStorage', atBus(1).label);
+  test('巴士車尾 = 臥鋪', atBus(3).kind === 'vehicleBunk', atBus(3).label);
+  test('未修好的車只給修理',
+    (() => { const m = mgr.findInteraction({ x: moto.x, z: moto.z }); return m.kind === 'vehicle' && m.label.includes('修理'); })());
+  test('車越長互動範圍越大', atBus(4.2) !== null && mgr.findInteraction({ x: moto.x, z: moto.z + 4.2 }) === null);
+
+  // 車廂 = 移動倉庫(死亡不掉落,跟儲物箱一樣是獨立 Inventory)
+  bus.cargo.add('canned', 4);
+  test('車廂能存物資', bus.cargo.count('canned') === 4);
+
+  // 摩托車物理:加速比皮卡猛
+  moto.setRepaired();
+  moto.fuel = 10;
+  moto.x = T.SPAWN.x + 12; moto.z = T.SPAWN.z; moto.heading = 0;
+  moto.syncBox();
+  mgr.enterVehicle(moto, fakePlayer, fakeStats);
+  fakePlayer.keys = { KeyW: true };
+  for (let i = 0; i < 30; i++) mgr.update(1 / 60, { player: fakePlayer, stats: fakeStats, now: 20 + i / 60 });
+  test('摩托車加速快', moto.speed > 4, `v=${moto.speed.toFixed(1)}`);
+  test('摩托車省油', moto.fuel > 10 - 0.5 * 0.5, `fuel=${moto.fuel.toFixed(2)}`);
+  mgr.exitVehicle(fakePlayer);
+
+  // 臥鋪重生點(main 讀 homeBunk,位置跟著車跑)
+  mgr.homeBunk = bus;
+  const bx0 = bus.x;
+  bus.x += 25;
+  test('臥鋪重生點跟著車移動', mgr.homeBunk.x === bx0 + 25);
+
   // ── 存讀檔 ──
   bike.setRepaired();
   const data = mgr.serialize();
@@ -126,9 +172,16 @@ try {
     Math.abs(p2.hp - pickup.hp) < 0.2 && Math.abs(p2.x - pickup.x) < 0.2);
   test('存讀:腳踏車修好', b2.repaired && b2.hp === bike.def.hp);
   test('存讀:廢棄車已拆', mgr2.carSpots[0].taken === true);
+  const bus2 = mgr2.vehicles[mgr.vehicles.indexOf(bus)];
+  test('存讀:車廂內容還原', bus2.cargo.count('canned') === 4);
+  test('存讀:臥鋪重生點還原', mgr2.homeBunk === bus2 && Math.abs(bus2.x - bus.x) < 0.2);
   const mgr3 = new V.VehicleManager(fakeScene);
   mgr3.loadFrom(null);
-  test('舊檔無載具相容', !mgr3.vehicles[0].repaired);
+  test('舊檔無載具相容', !mgr3.vehicles[0].repaired && mgr3.homeBunk === null);
+  const mgr4 = new V.VehicleManager(fakeScene);
+  mgr4.loadFrom({ v: [{ t: 'bike', x: 1, z: 2, h: 0, fuel: 0, hp: 40, rep: 1 }] }); // 舊格式:沒 st/bunk 欄位
+  test('舊檔缺車廂/臥鋪欄位相容',
+    mgr4.vehicles[0].repaired && mgr4.homeBunk === null && mgr4.vehicles[2].cargo.items.size === 0);
 
   out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
 } catch (err) {

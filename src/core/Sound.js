@@ -280,7 +280,7 @@ const SOUNDS = {
 
 // ── 持續音(無縫循環緩衝區,程序化生成後快取)──
 
-const LOOP_VOL = { engine: 0.3, bike: 0.22, campfire: 0.5, heartbeat: 0.45 };
+const LOOP_VOL = { engine: 0.3, bike: 0.22, moto: 0.26, campfire: 0.5, heartbeat: 0.45 };
 const loopBufs = {};
 const loops = {}; // name → {src, g}
 
@@ -296,6 +296,18 @@ function makeLoopBuf(name) {
         const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 27 * t));
         d[i] = (Math.sin(2 * Math.PI * 55 * t) * 0.6 + Math.sin(2 * Math.PI * 110 * t) * 0.25 +
                 Math.sin(2 * Math.PI * 165 * t) * 0.12 + (Math.random() * 2 - 1) * 0.13) * pulse * 0.5;
+      }
+    };
+  } else if (name === 'moto') {
+    // 摩托車:比引擎高一個八度的鋸齒 + 快一倍的點火脈動(嗡——的單缸聲)
+    len = sr;
+    fill = (d) => {
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const pulse = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 54 * t));
+        const saw = (x) => 2 * (x - Math.floor(x + 0.5)); // 整數頻率 = 循環無縫
+        d[i] = (saw(110 * t) * 0.45 + saw(220 * t) * 0.2 + Math.sin(2 * Math.PI * 330 * t) * 0.1 +
+                (Math.random() * 2 - 1) * 0.07) * pulse * 0.45;
       }
     };
   } else if (name === 'bike') {

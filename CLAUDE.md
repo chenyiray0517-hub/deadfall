@@ -29,7 +29,8 @@
 - [x] **M8c 載具**(2026-07-13):腳踏車+皮卡(規格 7.5),沿主幹道路肩固定生成;拆廢棄車得汽油/零件 → 裝零件修車 → E 上車 WASD 駕駛(第三人稱跟車視角);皮卡可衝撞、引擎聲引怪、感染者打車體;含存讀檔
 - [x] **M8d 熟練度軌**(2026-07-13):規格 7.7 雙軌的另一半——做什麼練什麼,不吃技能點,4 軌各 5 級:跑步(體力上限+4/級)/烹飪(烹飪品效果+10%/級)/槍械(冷卻-5%/級,「後座力下降」等效)/近戰(體力消耗-5%/級);K 面板下方顯示進度,含存讀檔(舊檔相容)
 - [x] **全套音效**(2026-07-18):Web Audio 程序化合成 52 種音效 + 4 種循環音,涵蓋所有動作(腳步/戰鬥/感染者/建造/載具/UI…),M 鍵靜音
-- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支;載具的摩托車/巴士也待補)
+- [x] **M8e 摩托車與巴士**(2026-07-30):補齊規格 7.5 的四種載具——摩托車(快/省油/噪音中)+ 巴士(進階,改裝成移動據點:車廂儲物 + 車尾臥鋪重生點 + 重型衝撞);皮卡貨斗一併變成移動倉庫
+- [ ] M8 其餘深度:NPC、任務、劇情(技能樹的社交分支)
 
 ## 架構備忘
 
@@ -105,7 +106,16 @@
   - 接點:`player.driving` 有值時 Player.update 直接 return、`noiseRadius` 改讀 `vehicle.noiseNow`(引擎聲引怪);`enemies.interceptAttack`(main 掛)讓感染者攻擊先打車體,車 hp 0 拋錨(廢金屬×3 修一半)才咬得到人。開車時 main 擋掉攻擊/面板,只吃 E 下車、R 加油(一桶 +15,油箱 40)。
   - 互動走 `vehicles.findInteraction`(Interaction.findInteraction 第 5 參數轉呼叫),kind 'vehicle'(修理→裝零件/拋錨→修車體/可開→上車)與 'carwreck';執行在 `vehicles.interact`。
   - 存檔:載具依生成順序索引還原(seed 固定所以穩),廢棄車已拆用座標比對;舊檔沒 vehicles 欄位 = 全新未修狀態。
-  - `_test_vehicles.html`:載具邏輯測試頁(32 條),headless --dump-dom 跑。
+  - `_test_vehicles.html`:載具邏輯測試頁(49 條,含 M8e),headless --dump-dom 跑。
+- M8e 摩托車/巴士架構(2026-07-30,同在 `Vehicles.js`):
+  - 四種車現在都由 VEHICLE_TYPES 的資料驅動,新增欄位:`storage`/`bunk`(= 分區互動的門檻,見下)、`noLos`(碰撞箱擋不擋視線,單車/摩托 true)、`tiltLen`(貼地傾斜取樣長度)、`ramFront/ramR/ramDmg/ramSelf`(衝撞判定,沒填就沿用皮卡舊值)、`sound`(循環音名稱與音量/音高係數,`coast:true` = 人力車,有在動就響)。
+  - **新車種一定要接在 `spawnAll` 最後面**:生成順序 = 存檔索引,插在中間舊存檔會對錯車。目前順序 bike×2 → pickup×2 → moto×2 → bus×1。
+  - 分區互動:`Vehicle.rearOffset(pos)` 算「站在車中心後方幾公尺」,findInteraction 依 `def.bunk` > `def.storage` > 駕駛 的順序判斷(巴士 = 車頭上車/車身開車廂/車尾睡臥鋪;皮卡 = 車尾貨斗)。互動距離改成 `boxHalf + 2.2`,長車才搆得到車尾。
+  - 車廂 = 車上的獨立 `Inventory`(`v.cargo`),死亡不掉落,共用儲物箱那塊 UI(main 的 `chestRef` 現在可以是 `{storage}` 這種鴨子物件,標題吃 `chestTitle`)。
+  - 巴士臥鋪 = 會移動的重生點:睡覺設 `vehicles.homeBunk`,main 的 `respawnSpot()` 臥鋪優先於床(睡床會清掉 homeBunk,重生點永遠是最後睡的地方);存檔在 vehicles 的 `bunk` 索引欄位,舊檔沒有 = null。
+  - 碰撞箱仍是軸對齊正方形近似,巴士 boxHalf 2.5(車長 7.2)所以車頭車尾會稍微穿牆——維持既有做法,別為它另開一套 OBB。
+  - 摩托引擎聲是新的循環音 `moto`(Sound.js `makeLoopBuf`,鋸齒波 110Hz + 54Hz 點火脈動);巴士沿用 `engine` 但壓低 rate 變成低沉柴油聲。
+  - 開發參數:`?repair=1` 全載具修好加滿油(試駕/截圖用)。
 - 物品 3D 模型(2026-07-14,Meshy AI 資產):
   - `assets/models/*.glb`(berries/canned/cookedmeat/bat/fireaxe/flask/canteen,各 ~70~150KB):由 `tools/convert_model.py` 用本機 Blender headless 從 FBX 轉出——減面到 ~1500 tris、貼圖縮 512 JPEG、最大邊正規化為 1、原點在底部中心。macOS 12 上 Blender 內建 numpy 會 dlopen 失敗(缺新版 Accelerate 符號),腳本開頭 `sys.path.insert` 墊一顆 PyPI numpy(路徑見腳本;wheel 解壓即可,不用 pip)。
   - `src/lib/glb.js`:迷你 GLB 載入器(只支援上述轉檔格式:單一 mesh/primitive、緊湊排列、內嵌貼圖)。刻意不用 three/examples 的 GLTFLoader——它 import 裸字串 'three',沒 importmap 載不了。`loadItemModels()` 回 {berry, canned, cooked},個別失敗回 null。
@@ -116,7 +126,7 @@
   - 全在 `src/core/Sound.js`:Web Audio API 程序化合成(零音檔素材),export 單例 `sfx`。import 零副作用——AudioContext 要等使用者手勢後 `sfx.unlock()`(main 掛在 click/keydown,冪等),沒 unlock 前所有呼叫都 no-op,所以測試頁/headless/讀檔還原時 import 或呼叫都安全。
   - 介面:`sfx.play(name, {vol,pan})` 2D 音;`sfx.play3d(name, x, z, {vol,dist})` 世界音(距離平方衰減 + StereoPanner 左右定位,基準 = `sfx.setListener(x,z,yaw)`,main 每幀 `updateAudio()` 更新);`sfx.setLoop(name, on, {vol,rate})` 循環音(engine/bike/campfire/heartbeat,緩衝區程序化生成、頻率取整數週期無縫循環);`sfx.toggleMute()` M 鍵靜音(localStorage `deadfall_muted`,獨立於遊戲存檔)。
   - 掛載點:Player(腳步依步幅累積距離/跳/落地)、Stats 新增 `onDamage` callback(僅 amount>=1,飢渴逐幀小扣血不響;保持純邏輯 node 可測)、Combat(揮/命中/砍樹/斷裂/弓/槍/空槍/裝備)、Zombies(低吼排程 `nextGrowl`、奔跑者尖叫、受擊/死亡——zdie 放在擊殺處不放 `die()` 內,免得讀檔還原屍體時響)、Building(`toggleDoor(b, silent)` 讀檔傳 silent;`damage` 只在 dmg>=5 響,尖刺自然磨損不響)、Vehicles(搥車/撞擊/沒油/拋錨)、main(吃喝/製作/建造/UI/技能/屍潮/感染/死亡/晨鳥)。
-  - `_test_sound.html`:手動試聽頁(52 種一鍵播放 + 循環音開關 + 3D 定位測試);頁面會自動核對 SOUNDS 表有沒有漏列。
+  - `_test_sound.html`:手動試聽頁(52 種一鍵播放 + 5 種循環音開關 + 3D 定位測試);頁面會自動核對 SOUNDS 表有沒有漏列。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

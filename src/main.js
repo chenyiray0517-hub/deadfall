@@ -139,14 +139,21 @@ overlayEl.addEventListener('click', () => {
   if (!awaitingChoice) player.lock(); // 有存檔時先選「繼續/重來」
 });
 $('respawn-btn').addEventListener('click', () => {
-  if (buildings.respawnPoint()) doRespawn();
+  if (respawnSpot()) doRespawn();
   else location.reload();
 });
 $('restart-btn').addEventListener('click', () => location.reload());
 
-// 床邊重生(規格 7.10 劇情模式:掉落部分物品)
+// 重生點:最後睡過的地方——巴士臥鋪(跟著車移動)優先於自己蓋的床
+function respawnSpot() {
+  const v = vehicles.homeBunk;
+  if (v) return { x: v.x, z: v.z, bunk: v };
+  return buildings.respawnPoint();
+}
+
+// 床邊/臥鋪重生(規格 7.10 劇情模式:掉落部分物品)
 function doRespawn() {
-  const bed = buildings.respawnPoint();
+  const bed = respawnSpot();
   dropHalfInventory(inventory);
   stats.hp = 50;
   stats.stamina = 60;
@@ -165,7 +172,7 @@ function doRespawn() {
   deathEl.classList.add('hidden');
   overlayEl.classList.remove('hidden'); // 點擊重新鎖定滑鼠
   updateQuickbar();
-  toast('你在床邊醒來……身上的東西掉了一半');
+  toast(bed.bunk ? '你在巴士臥鋪上醒來……身上的東西掉了一半' : '你在床邊醒來……身上的東西掉了一半');
   sfx.play('day');
   if (canSave) saveGame(saveCtx); // 重生後立刻存,關頁面也不會退回死前狀態
 }
@@ -193,7 +200,8 @@ function hitmark(killed) {
 
 // ── 面板(製作/建造/儲物箱/技能樹共用同一塊 UI)──
 let panelMode = null; // null | 'craft' | 'build' | 'chest' | 'skills'
-let chestRef = null;
+let chestRef = null;  // {storage} —— 儲物箱,或皮卡/巴士的車廂(M8e 移動倉庫)
+let chestTitle = '儲物箱';
 let chestActions = [];
 
 function matsLine() {
@@ -260,7 +268,7 @@ function renderChestPanel() {
     .map(([id, n]) => line(id, n, { dir: 'in', id })).join('') || '<div class="recipe no">(空)</div>';
   const boxRows = [...chestRef.storage.items.entries()].slice(0, 9 - k)
     .map(([id, n]) => line(id, n, { dir: 'out', id })).join('') || '<div class="recipe no">(空)</div>';
-  panelEl.innerHTML = `<h2>儲物箱</h2><div class="mats">按數字整疊存入/取出(死亡不會掉落箱內物品)</div>
+  panelEl.innerHTML = `<h2>${chestTitle}</h2><div class="mats">按數字整疊存入/取出(死亡不會掉落裡面的東西)</div>
     <div class="mats">背包:</div>${invRows}<div class="mats">箱內:</div>${boxRows}<div class="hint">Tab 關閉</div>`;
 }
 
@@ -352,7 +360,15 @@ addEventListener('keydown', (e) => {
       updateQuickbar();
       return;
     }
-    if (sel.kind === 'chest') { chestRef = sel.b; sfx.play('chestOpen'); setPanel('chest'); return; }
+    if (sel.kind === 'chest') { chestRef = sel.b; chestTitle = '儲物箱'; sfx.play('chestOpen'); setPanel('chest'); return; }
+    if (sel.kind === 'vehicleStorage') { // 皮卡貨斗/巴士車廂 = 移動倉庫(規格 7.5)
+      chestRef = { storage: sel.v.cargo };
+      chestTitle = `${sel.v.def.name}車廂`;
+      sfx.play('chestOpen');
+      setPanel('chest');
+      return;
+    }
+    if (sel.kind === 'vehicleBunk') { trySleep(null, sel.v); return; } // 巴士臥鋪 = 移動據點
     if (sel.kind === 'bed') { trySleep(sel.b); return; }
     const msg = doInteract(sel, inventory, stats);
     if (msg) {
@@ -458,8 +474,8 @@ addEventListener('contextmenu', (e) => {
   if (player.locked) e.preventDefault();
 });
 
-// 睡覺:夜晚快轉到清晨,床 = 重生點(規格 7.2)
-function trySleep(bed) {
+// 睡覺:夜晚快轉到清晨,睡的地方 = 重生點(規格 7.2;bunk = 巴士臥鋪,會跟著車跑)
+function trySleep(bed, bunk = null) {
   const t = timeSystem.timeOfDay;
   if (t >= 5 && t < 20) {
     toast('還不睏——天黑(20:00)後才能睡');
@@ -469,7 +485,9 @@ function trySleep(bed) {
     toast('感染者就在附近,睡不著!');
     return;
   }
-  buildings.homeBed = bed;
+  // 重生點 = 最後睡過的地方,床與臥鋪二選一
+  vehicles.homeBunk = bunk;
+  if (!bunk) buildings.homeBed = bed;
   sleepUntilMorning(timeSystem, stats);
   sfx.play('sleep');
   setTimeout(() => sfx.play('day'), 800); // 醒來的晨光鳥鳴
@@ -504,6 +522,7 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
   }
 }
 if (params.has('equip')) combat.equip(params.get('equip')); // 配 ?items= 用,截圖驗證手持模型
+if (params.has('repair')) vehicles.repairAll();             // 全載具修好加滿油(試駕/截圖用)
 
 // ── 存讀檔(M7.5)──
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
@@ -589,13 +608,16 @@ function updateAudio() {
   }
   sfx.setLoop('campfire', fireD < 9, { vol: Math.max(0, 1 - fireD / 9) });
 
-  // 引擎/腳踏車(開車中)
+  // 引擎/腳踏車/摩托(開車中;音量與音高的參數放在各車型的 def.sound)
   const v = vehicles.driving;
-  const engineOn = !!v && v.type === 'pickup' && v.hp > 0 && v.fuel > 0;
   const sp = v ? Math.abs(v.speed) / v.def.maxSpeed : 0;
-  sfx.setLoop('engine', engineOn, { vol: 0.7 + sp * 0.3, rate: 0.7 + sp * 1.2 });
-  const bikeOn = !!v && v.type === 'bike' && Math.abs(v.speed) > 0.4;
-  sfx.setLoop('bike', bikeOn, { vol: 0.4 + sp * 0.6, rate: 0.6 + sp * 1.8 });
+  const powered = !!v && v.hp > 0 && (v.def.fuelMax === 0 || v.fuel > 0);
+  for (const name of ['engine', 'bike', 'moto']) {
+    const s = v && v.def.sound.name === name ? v.def.sound : null;
+    // coast(人力車)= 有在動就響;引擎車 = 有油有車體才響
+    const on = !!s && (s.coast ? Math.abs(v.speed) > 0.4 : powered);
+    sfx.setLoop(name, on, on ? { vol: s.vol[0] + sp * s.vol[1], rate: s.rate[0] + sp * s.rate[1] } : undefined);
+  }
 }
 
 let infectionWarned = false;
@@ -628,9 +650,11 @@ function showDeath() {
   panelMode = null;
   deathEl.querySelector('.cause').textContent = `死因:${stats.deathCause}`;
   deathEl.querySelector('.days').textContent = `存活了 ${timeSystem.day} 天`;
-  const bed = buildings.respawnPoint();
-  if (canSave && !bed) clearSave(); // 沒床 = 這一輪結束;有床則保留最後一次自動存檔
-  $('respawn-btn').textContent = bed ? '在床邊醒來(掉落一半物品)' : '重新開始';
+  const bed = respawnSpot();
+  if (canSave && !bed) clearSave(); // 沒重生點 = 這一輪結束;有床/臥鋪則保留最後一次自動存檔
+  $('respawn-btn').textContent = bed
+    ? (bed.bunk ? '在巴士臥鋪醒來(掉落一半物品)' : '在床邊醒來(掉落一半物品)')
+    : '重新開始';
   $('restart-btn').classList.toggle('hidden', !bed);
   deathEl.classList.remove('hidden');
   overlayEl.classList.add('hidden');
