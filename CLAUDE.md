@@ -31,7 +31,7 @@
 - [x] **全套音效**(2026-07-18):Web Audio 程序化合成 52 種音效 + 4 種循環音,涵蓋所有動作(腳步/戰鬥/感染者/建造/載具/UI…),M 鍵靜音
 - [x] **M8e 摩托車與巴士**(2026-07-30):補齊規格 7.5 的四種載具——摩托車(快/省油/噪音中)+ 巴士(進階,改裝成移動據點:車廂儲物 + 車尾臥鋪重生點 + 重型衝撞);皮卡貨斗一併變成移動倉庫
 - [x] **M8f-1 NPC 與交易**(2026-07-30):7 個 NPC(流浪商人×2/方舟醫生/白衣會研究員/倖存者×3)+ E 交談面板(交易/打聽消息/送禮)+ 瓶蓋貨幣 + 三陣營聲望(影響買賣價)+ 技能樹社交分支(交易折扣/口才)
-- [ ] M8f-2 任務與招募:J 鍵任務面板、支線任務、招募倖存者跟隨 → 回據點工作與吃喝
+- [x] **M8f-2 任務與招募**(2026-07-30):6 個支線任務(倖存者個人任務×3 + 陣營任務×3,三種目標 collect/kill/visit)+ J 鍵任務日誌 + visit 任務的世界光柱標記 + 招募倖存者(四種專長:醫護/農夫/槍匠/斥候)跟隨作戰、駐守產出物資、要餵食,同伴上限吃新技能「領袖魅力」
 - [ ] M8f-3 敵對與主線:鏽爪幫掠奪者(伏擊/突襲據點)、白衣會血清主線、三結局
 
 ## 架構備忘
@@ -141,6 +141,18 @@
   - 目前 NPC 打不到也不會被感染者攻擊(沒有 HP);敵對與死亡等 M8f-3 的鏽爪幫一起做。
   - 開發參數:`?panel=talk|trade|gift&npc=索引` 直接開對話面板(要放在 `?items=` 之後才吃得到背包)、`?rep=ark:80,rust:5` 設陣營聲望。
   - `_test_npc.html`:NPC/交易/聲望邏輯測試頁(36 條),headless --dump-dom 跑。
+- M8f-2 任務/招募架構(2026-07-30):
+  - 任務在 `src/systems/Quests.js`(**純邏輯、不 import three,可 node 測**):QUEST_DEFS(6 個)+ QuestLog。三種目標:`collect`(交差時扣物品)、`kill`(main 在擊殺處呼叫 `questKill`,玩家/同伴/撞死都算)、`visit`(走到標記點拿信物再交回)。**visit 的座標不由 Quests.js 產生**——`NpcManager.pickQuestSpot(npc)`(seed 9000+npc.id)挑一棟 70~200m 外的建築,座標當參數傳進 `accept()`,純邏輯層不碰世界。
+  - 倖存者一人一個個人任務(`PERSONAL_QUESTS` 依生成順序指派到 `npc.questId`)+ 一種專長 `npc.role`;交差後 `npc.recruitable = true` 才出現「邀他同行」。陣營任務 `repeatable`,交差當天不能再接、隔天回來又有(`finished[id]` 存的是交差天數)。
+  - 任務信物 musicbox/photo/dogtag 在 Items.js 標 `quest: true`:不在 PRICES 所以不能交易,`dropHalfInventory` 也會跳過(掉了任務就死結)。
+  - 同伴在 `src/entities/Companion.js`:ROLES 四種專長(醫護/農夫/槍匠/斥候,規格 7.8),`CompanionManager`。招募 = 接管那個 NPC 的 mesh、`npc.recruited = true`(NpcManager 的 update/findInteraction 會跳過)、**拿掉他的碰撞圓**(跟著走的人擋路會把玩家卡在牆角);解散再放回去、陣亡 `npc.dead = true` 永久移除。
+  - 同伴 AI:12m 內有感染者就迎上去打(`zb.takeDamage`),貼身 1.9m 每 1.5s 挨一次咬——**沒有動 Zombies.js**,感染者仍然只鎖玩家,纏鬥傷害由同伴自己判定。跟隨掉隊 >26m 直接瞬移到你身後(不然會卡在室內牆後);碰撞只做 `insideAnyBox` 單軸滑行,不做完整解算。
+  - 吃喝(規格 7.8 後勤壓力):`food` 每遊戲小時 -3.5,歸零後每小時扣 6 HP;`FEED_VALUE` 列出能餵的東西。駐守模式每 2 遊戲小時依專長產物資進他自己的 `bag`,玩家用面板收取。
+  - 同伴上限 = `skills.partyMax()` = 1 + 領袖魅力等級(SKILL_DEFS 新增的第 12 個技能,**一律 append 在最後**,格子鍵才不會位移)。
+  - UI:J 鍵任務日誌(panelMode `quests`)、對話面板多出委託/回報/邀他同行、同伴 E 下指令(`companion`/`feed`)。`TALK_MODES` 這一組面板的數字鍵都走 `doTalkAction`,加新面板記得加進去。visit 任務接下後在目標處立一根半透明光柱(`addQuestMarker`,讀檔會補回)。左下 `#party` 顯示同伴血量/飽食/狀態。
+  - 存讀檔:`quests`(進行中 + 已完成天數)與 `companions`(依 npc 索引)兩個新欄位;**companions.loadFrom 一定要在 npcs.loadFrom 之後**。舊檔沒有這兩欄 = 沒任務沒同伴。
+  - 開發參數:`?quest=sv_food,ark_supply` 直接接任務、`?party=1` 直接招募第一個倖存者、`?panel=quests|quest|companion|feed`。
+  - `_test_quests.html`:任務/招募/同伴邏輯測試頁(59 條),headless --dump-dom 跑。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

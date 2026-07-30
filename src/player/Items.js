@@ -127,6 +127,10 @@ export const ITEMS = {
   shell: { name: '霰彈', icon: '🔴' },
   // ── 貨幣(M8f,規格 7.8:方舟聚落用瓶蓋交易)──
   caps: { name: '瓶蓋', icon: '🔘' },
+  // ── 任務信物(M8f-2,規格 7.9;quest:true = 不能交易、死亡不掉)──
+  musicbox: { name: '音樂盒', icon: '🎵', quest: true },
+  photo: { name: '全家福照片', icon: '🖼', quest: true },
+  dogtag: { name: '身分名牌', icon: '🏷', quest: true },
 };
 
 // 快捷欄:依此優先序顯示「持有的」消耗品,最多 8 格

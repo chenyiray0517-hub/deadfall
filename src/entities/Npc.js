@@ -7,9 +7,12 @@
 import * as THREE from '../lib/three.js';
 import {
   terrainHeight, biomeWeights, colliders, insideAnyBox, insideNoSpawn, isDeepWater, mulberry32,
+  TERRAIN_SIZE,
 } from '../world/Terrain.js';
 import { structureSpots } from '../world/Structures.js';
 import { ITEMS, Inventory } from '../player/Items.js';
+import { PERSONAL_QUESTS } from '../systems/Quests.js';
+import { ROLE_IDS } from './Companion.js';
 import { sfx } from '../core/Sound.js';
 
 // ── 三大陣營(規格 7.8)──
@@ -90,6 +93,12 @@ export class Npc {
     this.restockDay = 0;   // 最後補貨的天數
     this.rumorIdx = 0;     // 打聽消息輪流講
     this.metOnce = false;  // 第一次見面的招呼語只講一次
+    // M8f-2 任務與招募(倖存者才有 questId/role;spawnAll 依生成順序指派)
+    this.questId = null;
+    this.role = null;
+    this.recruitable = false; // 個人任務交差後 = true
+    this.recruited = false;   // 已入隊(交給 CompanionManager 接管,世界上不再有這個 NPC)
+    this.dead = false;        // 當同伴時陣亡 = 永遠不在了
 
     for (const [id, n] of Object.entries(this.def.stock)) this.stock.add(id, n);
 
@@ -177,11 +186,41 @@ export class NpcManager {
     place('scientist', 'building', 'urban', 1);
     place('survivor', 'house', 'rural', 2);
     place('survivor', 'barn', 'rural', 1);
+
+    // 倖存者:一人一個個人任務(交差後可招募)+ 一種專長(規格 7.8 醫生/農夫/槍匠/斥候)
+    let si = 0;
+    for (const n of this.npcs) {
+      if (n.type !== 'survivor') continue;
+      n.questId = PERSONAL_QUESTS[si] || null; // 任務不夠分的話後面的倖存者就不給
+      n.role = ROLE_IDS[Math.floor(rng() * ROLE_IDS.length)];
+      si++;
+    }
+  }
+
+  // visit 型任務的目標點:離委託人夠遠的一棟建築(遺物就在那裡)
+  pickQuestSpot(npc) {
+    const rng = mulberry32(9000 + npc.id);
+    let best = null;
+    for (let i = 0; i < 200; i++) {
+      const s = structureSpots[Math.floor(rng() * structureSpots.length)];
+      if (!s) break;
+      const d = Math.hypot(s.x - npc.x, s.z - npc.z);
+      if (d < 70 || d > 200) continue;
+      best = { x: s.x, z: s.z };
+      break;
+    }
+    if (best) return best;
+    // 退路:朝隨機方向 90m(夾在地圖邊界內)
+    const a = rng() * Math.PI * 2;
+    const half = TERRAIN_SIZE / 2 - 20;
+    const clamp = (v) => Math.max(-half, Math.min(half, v));
+    return { x: clamp(npc.x + Math.cos(a) * 90), z: clamp(npc.z + Math.sin(a) * 90) };
   }
 
   // 靠近時轉頭看玩家(只算附近的,便宜)
   update(dt, playerPos, day = 1) {
     for (const n of this.npcs) {
+      if (n.recruited || n.dead) continue; // 入隊的交給 CompanionManager 管
       const d = Math.hypot(n.x - playerPos.x, n.z - playerPos.z);
       if (d > 14) continue;
       n.restock(day);
@@ -198,6 +237,7 @@ export class NpcManager {
   findInteraction(pos) {
     let best = null, bd = 2.8;
     for (const n of this.npcs) {
+      if (n.recruited || n.dead) continue;
       const d = Math.hypot(n.x - pos.x, n.z - pos.z);
       if (d < bd) { bd = d; best = n; }
     }
@@ -324,6 +364,8 @@ export class NpcManager {
       npcs: this.npcs.map((n) => ({
         t: n.type, caps: n.caps, day: n.restockDay, rum: n.rumorIdx, met: n.metOnce ? 1 : 0,
         stock: [...n.stock.items.entries()],
+        // M8f-2:招募進度(role/questId 由固定 seed 生成,不必存)
+        rec: n.recruitable ? 1 : 0, joined: n.recruited ? 1 : 0, dead: n.dead ? 1 : 0,
       })),
     };
   }
@@ -341,6 +383,15 @@ export class NpcManager {
       n.rumorIdx = s.rum || 0;
       n.metOnce = !!s.met;
       n.stock.items = new Map(s.stock || []);
+      n.recruitable = !!s.rec;
+      n.dead = !!s.dead;
+      // recruited 由 CompanionManager.loadFrom 重新招募時設定(要在這之後跑)
+      n.recruited = false;
+      if (n.dead) {
+        this.scene.remove(n.mesh);
+        const ci = colliders.circles.indexOf(n.collider);
+        if (ci >= 0) colliders.circles.splice(ci, 1);
+      }
     });
   }
 }

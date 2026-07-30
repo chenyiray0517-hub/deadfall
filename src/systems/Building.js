@@ -1,5 +1,5 @@
 import * as THREE from '../lib/three.js';
-import { Inventory } from '../player/Items.js';
+import { Inventory, ITEMS } from '../player/Items.js';
 import { terrainHeight, colliders, isDeepWater, TERRAIN_SIZE } from '../world/Terrain.js';
 import { costOf } from './Crafting.js';
 import { sfx } from '../core/Sound.js';
@@ -269,6 +269,7 @@ export function sleepUntilMorning(timeSystem, stats) {
 // 死亡懲罰:每疊掉一半(規格 7.10 劇情模式「掉落部分物品」)
 export function dropHalfInventory(inv) {
   for (const [id, n] of [...inv.items.entries()]) {
+    if (ITEMS[id]?.quest) continue; // 任務信物不掉(掉了任務就死結)
     const lose = Math.floor(n / 2);
     if (lose > 0) inv.remove(id, lose);
   }

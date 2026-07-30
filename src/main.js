@@ -16,6 +16,8 @@ import { Buildings, BUILDABLES, sleepUntilMorning, dropHalfInventory } from './s
 import { peekSave, clearSave, saveGame, loadGame } from './systems/SaveSystem.js';
 import { VehicleManager } from './systems/Vehicles.js';
 import { NpcManager, FACTIONS, PRICES, giftValue } from './entities/Npc.js';
+import { QuestLog, questDef } from './systems/Quests.js';
+import { CompanionManager, ROLES, FEED_VALUE } from './entities/Companion.js';
 import { loadItemModels } from './lib/glb.js';
 
 // ── 基礎場景 ──
@@ -56,6 +58,10 @@ const vehicles = new VehicleManager(scene); // 載具(M8c;要在 createStructure
 vehicles.toast = toast;
 const npcs = new NpcManager(scene); // NPC 與陣營(M8f;同樣要在 createStructures 之後)
 npcs.skills = skills;               // 交易折扣/口才
+const quests = new QuestLog();      // 任務(M8f-2,規格 7.9)
+const companions = new CompanionManager(scene); // 招募的同伴(規格 7.8)
+companions.skills = skills;         // 領袖魅力 = 同伴上限
+companions.toast = toast;
 enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
@@ -66,9 +72,19 @@ const combat = new Combat({
     if (killed) {
       toast(`擊殺了${zb.def.name}`);
       gainXp(zb.def.xp || 10);
+      questKill(zb.type);
     }
   },
 });
+
+// 擊殺型任務進度(玩家自己殺的、撞死的、同伴殺的都算)
+function questKill(type) {
+  for (const q of quests.onKill(type)) {
+    const g = questDef(q.id).goal;
+    if (q.prog.kill >= g.n) toast(`📜 ${questDef(q.id).title}:目標達成,回去覆命`);
+    else if (q.prog.kill % 2 === 0) toast(`📜 ${questDef(q.id).title} ${q.prog.kill}/${g.n}`);
+  }
+}
 
 // 吃/喝時第一人稱手上短暫舉起物品模型(莓果/罐頭/烤肉/水壺)
 const CONSUME_POSE = {
@@ -129,7 +145,7 @@ const fpsEl = $('fps'), clockEl = $('clock'), crosshairEl = $('crosshair'), xpEl
 const overlayEl = $('start-overlay'), statsEl = $('stats'), deathEl = $('death-overlay');
 const vigHpEl = $('vig-hp'), vigThirstEl = $('vig-thirst');
 const effectsEl = $('effects'), quickbarEl = $('quickbar');
-const promptEl = $('prompt'), toastsEl = $('toasts'), panelEl = $('panel');
+const promptEl = $('prompt'), toastsEl = $('toasts'), panelEl = $('panel'), partyEl = $('party');
 const weaponEl = $('weapon'), hitmarkEl = $('hitmark'), vehicleEl = $('vehicle');
 const bars = {
   hp: document.querySelector('#bar-hp i'),
@@ -299,6 +315,25 @@ function renderTalkPanel() {
   const npc = talkNpc;
   talkActions = [];
   const rows = [];
+  // 委託(M8f-2):待交的先問,沒有再看他有沒有新的要給
+  const idx = npcs.npcs.indexOf(npc);
+  const pending = quests.pendingFor(idx);
+  if (pending) {
+    const def = questDef(pending.id);
+    const ok = quests.isComplete(pending, inventory);
+    talkActions.push({ act: 'questTurn', q: pending });
+    rows.push(actionRow(`${ok ? '✅' : '📜'} 回報「${def.title}」 <span class="req">${quests.progressText(pending, inventory)}</span>`));
+  } else {
+    const offer = quests.offerFor(npc, timeSystem.day);
+    if (offer) {
+      talkActions.push({ act: 'questOffer', def: offer });
+      rows.push(actionRow(`📜 他有事想拜託你 <span class="req">「${offer.title}」</span>`));
+    }
+  }
+  if (npc.recruitable && !npc.recruited) {
+    talkActions.push({ act: 'recruit' });
+    rows.push(actionRow(`🤝 邀他同行 <span class="req">(${ROLES[npc.role]?.name ?? '倖存者'} · 同伴 ${companions.list.length}/${companions.maxCount()})</span>`));
+  }
   if (npc.def.trade) {
     talkActions.push({ act: 'trade' });
     rows.push(actionRow(npcs.canTrade(npc) ? '交易(看貨)' : '交易 <span class="req">(聲望 20 以上才談)</span>'));
@@ -350,12 +385,225 @@ function renderGiftPanel() {
     <div class="mats">${repLine(npc)}</div>${rows}${actionRow('算了')}`;
 }
 
+// ── 任務(M8f-2,規格 7.9)──
+// 標記點光柱:visit 型任務接下後在目標處立一道光,拿到信物就撤掉
+const questMarkers = new Map();
+function addQuestMarker(q) {
+  if (!q.spot || questMarkers.has(q.id)) return;
+  const m = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.2, 1.2, 70, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xe5a13c, transparent: true, opacity: 0.2,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  m.position.set(q.spot.x, terrainHeight(q.spot.x, q.spot.z) + 34, q.spot.z);
+  scene.add(m);
+  questMarkers.set(q.id, m);
+}
+function removeQuestMarker(id) {
+  const m = questMarkers.get(id);
+  if (!m) return;
+  scene.remove(m);
+  m.geometry.dispose();
+  m.material.dispose();
+  questMarkers.delete(id);
+}
+
+// 方位提示(沒有地圖,至少告訴你往哪走);-z = 北
+function bearingText(x, z) {
+  const dx = x - player.position.x;
+  const dz = z - player.position.z;
+  const dirs = ['北', '東北', '東', '東南', '南', '西南', '西', '西北'];
+  const a = Math.atan2(dx, -dz);
+  const i = Math.round(((a + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 4)) % 8;
+  return `${dirs[i]}方 ${Math.round(Math.hypot(dx, dz))}m`;
+}
+
+// J 鍵:任務日誌
+function renderQuestsPanel() {
+  const rows = quests.active.map((q) => {
+    const def = questDef(q.id);
+    const npc = npcs.npcs[q.npcIdx];
+    const ok = quests.isComplete(q, inventory);
+    const where = def.goal.kind === 'visit' && q.spot && !q.prog.got ? `　<span class="req">${bearingText(q.spot.x, q.spot.z)}</span>` : '';
+    return `<div class="recipe ${ok ? '' : 'no'}">${ok ? '✅' : '📜'} ${def.title}
+      <span class="req">— ${npc ? npc.def.name : '委託人'}</span>
+      <div class="req" style="padding-left:20px">${quests.progressText(q, inventory)}${where}</div>
+      <div class="req" style="padding-left:20px">報酬 ${quests.rewardText(def)}${ok ? '　<span style="color:#8a9a6b">回去交差</span>' : ''}</div>
+    </div>`;
+  }).join('') || '<div class="recipe no">(沒有進行中的任務——去找 NPC 聊聊)</div>';
+  const party = companions.list.map((c) => `<div class="recipe">${c.statusText()}</div>`).join('')
+    || `<div class="recipe no">(還沒有同伴——完成倖存者的委託就能邀他同行)</div>`;
+  panelEl.innerHTML = `<h2>任務日誌</h2>
+    <div class="mats">已完成 ${Object.keys(quests.finished).length} 件委託</div>
+    ${rows}
+    <div class="mats" style="margin:14px 0 2px">── 同伴(${companions.list.length}/${companions.maxCount()})──</div>
+    ${party}
+    <div class="hint">J/Tab 關閉 · 🎖 領袖魅力可以提高同伴上限</div>`;
+}
+
+// NPC 對話裡的「委託」子畫面
+let questOffer = null; // 目前正在看的任務 def
+function renderQuestPanel() {
+  const npc = talkNpc;
+  talkActions = [];
+  const def = questOffer;
+  const rows = [];
+  if (def) {
+    talkActions.push({ act: 'questAccept' });
+    rows.push(actionRow('接下這個委託'));
+  }
+  talkActions.push({ act: 'back' });
+  rows.push(actionRow('再想想'));
+  panelEl.innerHTML = `<h2>📜 ${def ? def.title : '委託'}</h2>
+    <div class="mats">${def ? def.desc : ''}</div>
+    <div class="mats">目標:${def ? goalText(def) : ''}<br>報酬:${def ? quests.rewardText(def) : ''}</div>
+    ${rows.join('')}
+    <div class="hint">${npc.def.name} · E/Tab 離開</div>`;
+}
+
+function goalText(def) {
+  const g = def.goal;
+  if (g.kind === 'collect') {
+    return Object.entries(g.items).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name}×${n}`).join('、');
+  }
+  if (g.kind === 'kill') return `擊殺 ${g.n} 隻感染者`;
+  if (g.kind === 'visit') return `前往標記地點取回${ITEMS[g.item].icon}${ITEMS[g.item].name}`;
+  return '';
+}
+
+// ── 同伴指令(M8f-2,規格 7.8)──
+let compRef = null;
+function renderCompanionPanel() {
+  const c = compRef;
+  talkActions = [];
+  const rows = [];
+  talkActions.push({ act: 'compMode' });
+  rows.push(actionRow(c.mode === 'follow' ? '待在這裡看家(駐守工作)' : '跟我走'));
+  talkActions.push({ act: 'compBag' });
+  const bagN = [...c.bag.items.values()].reduce((a, b) => a + b, 0);
+  rows.push(actionRow(`收取他攢下的物資 <span class="req">(${bagN} 件)</span>`));
+  talkActions.push({ act: 'compFeed' });
+  rows.push(actionRow('餵他吃東西 <span class="req">(飽食歸零會開始扣血)</span>'));
+  talkActions.push({ act: 'compDismiss' });
+  rows.push(actionRow('讓他留在這裡 <span class="req">(解散)</span>'));
+  talkActions.push({ act: 'close' });
+  rows.push(actionRow('沒事'));
+  panelEl.innerHTML = `<h2>${c.def.icon} ${c.name} · ${c.def.name}</h2>
+    <div class="mats">${c.statusText()}</div>
+    <div class="mats">專長:${c.def.perk}<br>駐守產出:${Object.keys(c.def.work).map((id) => ITEMS[id].icon + ITEMS[id].name).join('、')}</div>
+    ${rows.join('')}
+    <div class="hint">按數字選擇 · E/Tab 離開</div>`;
+}
+
+function renderFeedPanel() {
+  const c = compRef;
+  talkActions = [];
+  const rows = [...inventory.items.keys()].filter((id) => FEED_VALUE[id]).slice(0, 8).map((id) => {
+    talkActions.push({ act: 'feedItem', id });
+    return actionRow(`${ITEMS[id].icon}${ITEMS[id].name} ×${inventory.count(id)} <span class="req">→ 飽食 +${FEED_VALUE[id]}</span>`);
+  }).join('') || '<div class="recipe no">(身上沒有能吃的東西)</div>';
+  talkActions.push({ act: 'backComp' });
+  panelEl.innerHTML = `<h2>${c.def.icon} 餵食 ${c.name}</h2>
+    <div class="mats">${c.statusText()}</div>${rows}${actionRow('算了')}`;
+}
+
 function doTalkAction(i) {
   const a = talkActions[i - 1];
   if (!a) return;
   const npc = talkNpc;
   if (a.act === 'close') { setPanel(null); return; }
   if (a.act === 'back') { setPanel('talk'); return; }
+  if (a.act === 'backComp') { setPanel('companion'); return; }
+  // ── 任務 ──
+  if (a.act === 'questOffer') { questOffer = a.def; setPanel('quest'); return; }
+  if (a.act === 'questAccept') {
+    const def = questOffer;
+    const idx = npcs.npcs.indexOf(npc);
+    const spot = def.goal.kind === 'visit' ? npcs.pickQuestSpot(npc) : null;
+    const q = quests.accept(def, idx, spot);
+    if (q) {
+      if (spot) { addQuestMarker(q); toast(`📜 接下「${def.title}」——${bearingText(spot.x, spot.z)}有一道光柱`); }
+      else toast(`📜 接下「${def.title}」(按 J 看任務日誌)`);
+      sfx.play('talk');
+      talkLine = `「${def.desc.replace(/[「」]/g, '')}」`;
+    }
+    setPanel('talk');
+    return;
+  }
+  if (a.act === 'questTurn') {
+    const q = a.q;
+    const def = questDef(q.id);
+    const res = quests.turnIn(q, inventory, timeSystem.day);
+    if (!res) {
+      talkLine = `「${quests.progressText(q, inventory)}——還沒好呢。」`;
+      sfx.play('uiOff');
+      renderTalkPanel();
+      return;
+    }
+    removeQuestMarker(q.id);
+    for (const [f, n] of Object.entries(res.reward.rep || {})) {
+      const got = npcs.addRep(f, n);
+      if (got > 0) toast(`${FACTIONS[f].icon} ${FACTIONS[f].name}聲望 +${got}(${npcs.repOf(f)})`);
+    }
+    gainXp(res.reward.xp || XP.quest);
+    toast(`✅ 完成「${def.title}」　${quests.rewardText(def)}`);
+    sfx.play('levelup');
+    if (def.unlockRecruit) {
+      npc.recruitable = true;
+      toast(`🤝 ${npc.def.name}願意跟你走了——選單多了「邀他同行」`);
+    }
+    talkLine = def.done || '「謝了。」';
+    updateQuickbar();
+    setPanel('talk');
+    return;
+  }
+  if (a.act === 'recruit') {
+    if (!companions.canRecruit()) {
+      talkLine = `「你已經帶著${companions.list.length}個人了。」(同伴上限 ${companions.maxCount()},🎖 領袖魅力可以提高)`;
+      sfx.play('uiOff');
+      renderTalkPanel();
+      return;
+    }
+    const c = companions.recruit(npc, npcs.npcs.indexOf(npc));
+    if (c) {
+      toast(`🤝 ${c.name}(${c.def.name})加入了你——${c.def.perk}`);
+      sfx.play('levelup');
+      setPanel(null);
+    }
+    return;
+  }
+  // ── 同伴指令 ──
+  if (a.act === 'compMode') {
+    compRef.mode = compRef.mode === 'follow' ? 'guard' : 'follow';
+    toast(compRef.mode === 'guard' ? `${compRef.name}留下來看家了` : `${compRef.name}跟上來了`);
+    sfx.play('ui');
+    renderCompanionPanel();
+    return;
+  }
+  if (a.act === 'compBag') {
+    toast(compRef.collectBag(inventory));
+    sfx.play('pickup');
+    updateQuickbar();
+    renderCompanionPanel();
+    return;
+  }
+  if (a.act === 'compFeed') { setPanel('feed'); return; }
+  if (a.act === 'feedItem') {
+    const res = compRef.feed(a.id, inventory);
+    toast(res.msg);
+    sfx.play(res.fed ? 'eat' : 'uiOff');
+    updateQuickbar();
+    renderFeedPanel();
+    return;
+  }
+  if (a.act === 'compDismiss') {
+    toast(companions.dismiss(compRef));
+    sfx.play('uiOff');
+    setPanel(null);
+    return;
+  }
   if (a.act === 'gift') { setPanel('gift'); return; }
   if (a.act === 'trade') {
     if (!npcs.canTrade(npc)) {
@@ -404,7 +652,14 @@ function setPanel(mode) {
   else if (mode === 'talk') renderTalkPanel();
   else if (mode === 'trade') renderTradePanel();
   else if (mode === 'gift') renderGiftPanel();
+  else if (mode === 'quest') renderQuestPanel();
+  else if (mode === 'quests') renderQuestsPanel();
+  else if (mode === 'companion') renderCompanionPanel();
+  else if (mode === 'feed') renderFeedPanel();
 }
+
+// 走數字鍵 → doTalkAction 的面板(對話、交易、任務、同伴指令)
+const TALK_MODES = ['talk', 'trade', 'gift', 'quest', 'companion', 'feed'];
 
 function doChestTransfer(digit) {
   const act = chestActions[digit - 1];
@@ -457,6 +712,11 @@ addEventListener('keydown', (e) => {
     setPanel(panelMode === 'skills' ? null : 'skills');
     return;
   }
+  if (e.code === 'KeyJ') {
+    // 任務日誌(規格 7.9)
+    setPanel(panelMode === 'quests' ? null : 'quests');
+    return;
+  }
   if (e.code === 'KeyB') {
     // 建造(規格第 8 章)
     if (buildings.placing) {
@@ -469,9 +729,15 @@ addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyE') {
     // 對話中按 E = 離開對話(不然會原地重開一次)
-    if (panelMode === 'talk' || panelMode === 'trade' || panelMode === 'gift') { setPanel(null); return; }
-    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs);
+    if (TALK_MODES.includes(panelMode)) { setPanel(null); return; }
+    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions);
     if (!sel) return;
+    if (sel.kind === 'companion') { // 同伴下指令(M8f-2)
+      compRef = sel.comp;
+      sfx.play('talk');
+      setPanel('companion');
+      return;
+    }
     if (sel.kind === 'npc') { // NPC 交談(M8f)
       talkNpc = sel.npc;
       talkLine = npcs.greeting(sel.npc);
@@ -517,7 +783,7 @@ addEventListener('keydown', (e) => {
   // 技能樹超過 9 項後,格子鍵延伸到 0 - =(面板會標出對應的鍵);其餘面板仍只吃 1-9
   const slot = PANEL_KEYS.indexOf(e.code) + 1;
   const digit = slot >= 1 && slot <= 9 ? slot : 0;
-  if (slot >= 1 && (panelMode === 'talk' || panelMode === 'trade' || panelMode === 'gift')) {
+  if (slot >= 1 && TALK_MODES.includes(panelMode)) {
     doTalkAction(slot);
     return;
   }
@@ -667,21 +933,45 @@ if (params.has('rep')) { // ?rep=ark:80,rust:5 直接設陣營聲望(測交易�
     if (npcs.rep[f] !== undefined) npcs.rep[f] = Math.max(0, Math.min(100, parseInt(v) || 0));
   }
 }
-// 直接開指定面板(截圖驗證 UI 用);要在 items/equip 之後,面板才看得到給的物品
+// ?quest=sv_food,ark_supply 直接從委託人手上接下任務(測任務面板用)
+if (params.has('quest')) {
+  for (const id of params.get('quest').split(',')) {
+    const def = questDef(id);
+    if (!def) continue;
+    const npc = npcs.npcs.find((n) => (n.questId ? n.questId === id : n.type === def.giver));
+    if (!npc) continue;
+    const q = quests.accept(def, npcs.npcs.indexOf(npc), def.goal.kind === 'visit' ? npcs.pickQuestSpot(npc) : null);
+    if (q?.spot) addQuestMarker(q);
+  }
+}
+// ?party=1 直接招募第一個倖存者(試同伴 AI/截圖用)
+if (params.has('party')) {
+  const n = parseInt(params.get('party')) || 1;
+  for (const npc of npcs.npcs) {
+    if (companions.list.length >= n || npc.type !== 'survivor' || npc.recruited) continue;
+    npc.recruitable = true;
+    const c = companions.recruit(npc, npcs.npcs.indexOf(npc));
+    if (c) { c.x = player.position.x + 2; c.z = player.position.z + 1; c.syncMesh(); }
+  }
+  updatePartyHud();
+}
+// 直接開指定面板(截圖驗證 UI 用);要在 items/equip/quest/party 之後,面板才看得到內容
 if (params.has('panel')) {
   const pm = params.get('panel');
-  if (['talk', 'trade', 'gift'].includes(pm) && npcs.npcs.length) {
+  if (['talk', 'trade', 'gift', 'quest'].includes(pm) && npcs.npcs.length) {
     talkNpc = npcs.npcs[parseInt(params.get('npc')) || 0] || npcs.npcs[0];
     talkLine = npcs.greeting(talkNpc);
+    if (pm === 'quest') questOffer = quests.offerFor(talkNpc, timeSystem.day);
   }
-  setPanel(pm);
+  if (['companion', 'feed'].includes(pm)) compRef = companions.list[0];
+  if (!(['companion', 'feed'].includes(pm) && !compRef)) setPanel(pm);
 }
 
 // ── 存讀檔(M7.5)──
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -699,7 +989,9 @@ if (savedData) {
     e.stopPropagation();
     loadGame(savedData, saveCtx);
     if (stats.infection > 0) infectionWarned = true; // 讀檔別再跳一次感染警告
+    for (const q of quests.active) if (q.spot && !q.prog.got) addQuestMarker(q); // 補回任務光柱
     updateQuickbar();
+    updatePartyHud();
     chooseDone();
     toast(`歡迎回來——第 ${timeSystem.day} 天 ${timeSystem.clockText}`);
   });
@@ -771,6 +1063,17 @@ function updateAudio() {
     const on = !!s && (s.coast ? Math.abs(v.speed) > 0.4 : powered);
     sfx.setLoop(name, on, on ? { vol: s.vol[0] + sp * s.vol[1], rate: s.rate[0] + sp * s.rate[1] } : undefined);
   }
+}
+
+// 同伴狀態列(M8f-2):跟著你的人的血與飽食
+function updatePartyHud() {
+  partyEl.classList.toggle('hidden', companions.list.length === 0);
+  partyEl.innerHTML = companions.list.map((c) => {
+    const hp = Math.round(c.hp);
+    const hpCol = hp < c.hpMax * 0.35 ? '#c84a3c' : '#d8d4c2';
+    const food = c.hungry() ? `<span style="color:#c84a3c">🍖${Math.round(c.food)}%</span>` : `🍖${Math.round(c.food)}%`;
+    return `<div>${c.def.icon} ${c.name} <span style="color:${hpCol}">❤${hp}</span> ${food} <span style="color:#8a9a6b">${c.mode === 'guard' ? '駐守' : '跟隨'}</span></div>`;
+  }).join('');
 }
 
 let infectionWarned = false;
@@ -845,6 +1148,7 @@ function loop() {
       if (killed) {
         toast(`💥 撞飛了${zb.def.name}!`);
         gainXp(zb.def.xp || 10);
+        questKill(zb.type);
       }
     },
   });
@@ -852,6 +1156,15 @@ function loop() {
   timeSystem.update(dt, player.position);
   enemies.update(dt, player, stats, timeSystem.nightFactor, elapsed, buildings);
   npcs.update(dt, player.position, timeSystem.day); // 靠近時轉頭看你 + 每天補貨
+  companions.update(dt, {                            // 同伴:跟隨/駐守工作/自動迎敵(M8f-2)
+    playerPos: player.position, playerStats: stats, enemies, now: elapsed,
+    gh: dt * timeSystem.hoursPerRealSecond, toast,
+    onKill: (zb, c) => {
+      toast(`${c.def.icon} ${c.name}解決了${zb.def.name}`);
+      gainXp(Math.round((zb.def.xp || 10) * 0.5)); // 同伴殺的算你一半功勞
+      questKill(zb.type);
+    },
+  });
   combat.update(dt);
   updateConsumeFx(dt);
   buildings.update(dt);
@@ -872,7 +1185,7 @@ function loop() {
       promptEl.classList.remove('hidden');
       promptEl.innerHTML = `<b>左鍵</b> 放置${buildings.placing.name}(${costText(buildings.placing)}) · <b>B</b> 取消`;
     } else {
-      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs);
+      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions);
       promptEl.classList.toggle('hidden', !sel);
       if (sel) promptEl.innerHTML = `<b>E</b> ${sel.label}`;
     }
@@ -892,6 +1205,15 @@ function loop() {
     updateQuickbar();
     updateEffects();
     if (stats.alive && started) {
+      // 任務標記點:走到了就拿到信物(規格 7.9 取回遺物)
+      for (const q of quests.onVisit(player.position.x, player.position.z)) {
+        const g = questDef(q.id).goal;
+        inventory.add(g.item, 1);
+        removeQuestMarker(q.id);
+        toast(`📜 找到了${ITEMS[g.item].icon}${ITEMS[g.item].name}——帶回去給他`);
+        sfx.play('pickup');
+      }
+      updatePartyHud();
       // 屍潮夜襲檢查(規格 7.2)
       const horde = enemies.maybeHorde(timeSystem, player.position, elapsed);
       if (horde) {

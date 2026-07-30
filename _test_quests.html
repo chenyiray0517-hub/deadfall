@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const { Skills, SKILL_DEFS, XP } = await import('./src/player/Skills.js');
+  const { dropHalfInventory } = await import('./src/systems/Building.js');
+  const N = await import('./src/entities/Npc.js');
+  const Q = await import('./src/systems/Quests.js');
+  const C = await import('./src/entities/Companion.js');
+  const I = await import('./src/systems/Interaction.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const npcs = new N.NpcManager(fakeScene);
+  const quests = new Q.QuestLog();
+  const inv = new Inventory();
+
+  // ── 任務資料 ──
+  test('任務定義齊全', Q.QUEST_DEFS.every((d) => d.id && d.giver && d.title && d.goal && d.reward),
+    `n=${Q.QUEST_DEFS.length}`);
+  test('三種目標都有', ['collect', 'kill', 'visit'].every((k) => Q.QUEST_DEFS.some((d) => d.goal.kind === k)));
+  test('個人任務 = 解鎖招募', Q.PERSONAL_QUESTS.length >= 3 &&
+    Q.PERSONAL_QUESTS.every((id) => Q.questDef(id).unlockRecruit));
+  test('任務物品存在且標記為 quest',
+    Q.QUEST_DEFS.filter((d) => d.goal.kind === 'visit').every((d) => ITEMS[d.goal.item]?.quest));
+  test('XP.quest 有定義', XP.quest > 0);
+
+  // ── 倖存者:一人一個任務 + 一種專長 ──
+  const survivors = npcs.npcs.filter((n) => n.type === 'survivor');
+  test('倖存者拿到個人任務', survivors.length >= 3 && survivors.slice(0, 3).every((n) => n.questId),
+    survivors.map((n) => n.questId).join());
+  test('個人任務不重複', new Set(survivors.map((n) => n.questId)).size === survivors.length);
+  test('倖存者有專長', survivors.every((n) => C.ROLES[n.role]), survivors.map((n) => n.role).join());
+
+  const sv = survivors[0];
+  const svIdx = npcs.npcs.indexOf(sv);
+  const trader = npcs.npcs.find((n) => n.type === 'trader');
+  const scientist = npcs.npcs.find((n) => n.type === 'scientist');
+
+  // ── 接任務 ──
+  test('倖存者只給自己那一個', quests.offerFor(sv, 1)?.id === sv.questId, quests.offerFor(sv, 1)?.id);
+  test('商人給陣營任務', quests.offerFor(trader, 1)?.id === 'ark_supply');
+  test('商人不會給個人任務', !quests.offerFor(trader, 1).unlockRecruit);
+
+  const supply = quests.offerFor(trader, 1);
+  const q1 = quests.accept(supply, npcs.npcs.indexOf(trader));
+  test('接下任務進日誌', quests.active.length === 1 && quests.get('ark_supply') === q1);
+  test('同一個任務不能接兩次', quests.accept(supply, 0) === null);
+  test('已接的不會再被提供', quests.offerFor(trader, 1) === null);
+  test('委託人身上有待交任務', quests.pendingFor(npcs.npcs.indexOf(trader)) === q1);
+
+  // ── collect:進度與交差 ──
+  test('材料不夠不算完成', !quests.isComplete(q1, inv), quests.progressText(q1, inv));
+  inv.add('wood', 5);
+  inv.add('scrap', 2);
+  test('差一件也不行', !quests.isComplete(q1, inv), quests.progressText(q1, inv));
+  inv.add('scrap', 1);
+  test('材料齊了就完成', quests.isComplete(q1, inv), quests.progressText(q1, inv));
+  const caps0 = inv.count('caps');
+  const res1 = quests.turnIn(q1, inv, 3);
+  test('交差扣掉材料、拿到瓶蓋',
+    res1 && inv.count('wood') === 0 && inv.count('scrap') === 0 &&
+    inv.count('caps') === caps0 + supply.reward.caps, `caps ${inv.count('caps')}`);
+  test('交完離開日誌、記在已完成', quests.active.length === 0 && quests.finished.ark_supply === 3);
+  test('可重複任務當天不能再接', quests.offerFor(trader, 3) === null);
+  test('隔天可以再接', quests.offerFor(trader, 4)?.id === 'ark_supply');
+
+  // ── kill:擊殺進度 ──
+  const sample = quests.accept(Q.questDef('white_sample'), npcs.npcs.indexOf(scientist));
+  for (let i = 0; i < 7; i++) quests.onKill('walker');
+  test('擊殺累積進度', sample.prog.kill === 7 && !quests.isComplete(sample, inv), quests.progressText(sample, inv));
+  quests.onKill('runner');
+  test('擊殺數滿了就完成', quests.isComplete(sample, inv), quests.progressText(sample, inv));
+  test('滿了就不再累加', (quests.onKill('dog'), sample.prog.kill === 8));
+  const med0 = inv.count('antibiotic');
+  const res2 = quests.turnIn(sample, inv, 4);
+  test('獎勵物品有發', res2 && inv.count('antibiotic') === med0 + 1 && res2.reward.rep.white === 10);
+
+  // ── visit:標記點與信物 ──
+  const relicNpc = survivors.find((n) => n.questId === 'sv_relic');
+  test('visit 任務有標記座標', !!relicNpc);
+  const spot = npcs.pickQuestSpot(relicNpc);
+  const dSpot = Math.hypot(spot.x - relicNpc.x, spot.z - relicNpc.z);
+  test('標記點離委託人夠遠但不出界', dSpot > 60 && Math.abs(spot.x) < T.TERRAIN_SIZE / 2 && Math.abs(spot.z) < T.TERRAIN_SIZE / 2,
+    `d=${Math.round(dSpot)}`);
+  const relic = quests.accept(Q.questDef('sv_relic'), npcs.npcs.indexOf(relicNpc), spot);
+  test('人還沒到不會拿到信物', quests.onVisit(spot.x + 50, spot.z).length === 0 && !relic.prog.got);
+  const arrived = quests.onVisit(spot.x + 5, spot.z + 5);
+  test('走到標記點就達成', arrived.length === 1 && relic.prog.got);
+  test('沒把信物拿在身上不算完成', !quests.isComplete(relic, inv));
+  inv.add('musicbox', 1);
+  test('拿著信物才算完成', quests.isComplete(relic, inv));
+  const res3 = quests.turnIn(relic, inv, 5);
+  test('交差收走信物', res3 && inv.count('musicbox') === 0);
+
+  // ── 任務信物死亡不掉 ──
+  inv.add('photo', 1);
+  inv.add('canned', 4);
+  dropHalfInventory(inv);
+  test('死亡掉一半但信物留著', inv.count('photo') === 1 && inv.count('canned') === 2);
+
+  // ── 存讀檔 ──
+  const kept = quests.accept(Q.questDef('sv_food'), svIdx);
+  quests.onKill('walker');
+  const qdata = JSON.parse(JSON.stringify(quests.serialize()));
+  const quests2 = new Q.QuestLog();
+  quests2.loadFrom(qdata);
+  test('存讀:進行中的任務還原',
+    quests2.active.length === 1 && quests2.get('sv_food')?.npcIdx === svIdx);
+  test('存讀:已完成記錄還原', quests2.finished.sv_relic === 5 && quests2.finished.white_sample === 4);
+  const quests3 = new Q.QuestLog();
+  quests3.loadFrom(null);
+  test('舊檔沒有任務欄位也能跑', quests3.active.length === 0);
+
+  // ── 招募 ──
+  const skills = new Skills();
+  const comps = new C.CompanionManager(fakeScene);
+  comps.skills = skills;
+  test('社交分支有領袖魅力', SKILL_DEFS.some((s) => s.id === 'leader' && s.branch === '社交'));
+  test('預設同伴上限 1', comps.maxCount() === 1 && comps.canRecruit());
+
+  const circles0 = T.colliders.circles.length;
+  const c1 = comps.recruit(sv, svIdx);
+  test('招募成功', !!c1 && comps.list.length === 1 && sv.recruited && c1.role === sv.role);
+  test('入隊後不擋路', T.colliders.circles.length === circles0 - 1);
+  test('入隊後不能再交談',
+    !npcs.findInteraction({ x: sv.x, z: sv.z }) &&
+    !I.findInteraction({ position: { x: sv.x, y: 0, z: sv.z } }, inv, null, null, null, npcs));
+  test('同伴可以下指令',
+    I.findInteraction({ position: { x: c1.x + 1, y: 0, z: c1.z } }, inv, null, null, null, npcs, comps)?.kind === 'companion');
+
+  const sv2 = survivors[1];
+  test('超過上限招不了', comps.recruit(sv2, npcs.npcs.indexOf(sv2)) === null && !sv2.recruited);
+  skills.points = 1;
+  skills.up('leader');
+  test('領袖魅力提高上限', comps.maxCount() === 2 && comps.canRecruit());
+
+  // ── 同伴:飢餓/餵食/工作/戰鬥 ──
+  const toasts = [];
+  const ctx = (enemies = null) => ({
+    playerPos: { x: c1.x, z: c1.z }, playerStats: { alive: true, hp: 50 },
+    enemies, now: 1, gh: 1, toast: (m) => toasts.push(m),
+  });
+  const food0 = c1.food;
+  c1.update(0.016, ctx());
+  test('同伴會餓', c1.food < food0, `${food0} → ${c1.food.toFixed(1)}`);
+  c1.food = 0;
+  const hp0 = c1.hp;
+  c1.update(0.016, ctx());
+  test('餓到零開始扣血', c1.hp < hp0, `${hp0} → ${c1.hp}`);
+  inv.add('cooked', 2);
+  const fed = c1.feed('cooked', inv);
+  test('餵食補飽食', fed.fed && c1.food > 0 && inv.count('cooked') === 1, fed.msg);
+  test('不能餵石頭', !c1.feed('scrap', inv).fed);
+
+  c1.mode = 'guard';
+  c1.food = 100;
+  for (let i = 0; i < 3; i++) c1.update(0.016, ctx()); // 每次 gh=1,兩小時產一次
+  const bagN = [...c1.bag.items.values()].reduce((a, b) => a + b, 0);
+  test('駐守會產出物資', bagN > 0, `bag=${bagN}`);
+  const woodBefore = inv.count('wood');
+  const msg = c1.collectBag(inv);
+  test('可以收取物資', c1.bag.items.size === 0 && msg.includes('收下'), msg);
+
+  // 假感染者(只用到 Companion 會碰的欄位)
+  let hitBy = 0;
+  const fakeZb = {
+    alive: true, state: 'chase', pos: { x: c1.x + 1, z: c1.z },
+    def: { dmg: 10, name: '遊蕩者' },
+    takeDamage(dmg) { hitBy += dmg; this.hp = (this.hp ?? 30) - dmg; if (this.hp <= 0) { this.alive = false; return true; } return false; },
+  };
+  const fakeEnemies = { zombies: [fakeZb] };
+  c1.mode = 'follow';
+  c1.hp = 80;
+  let killed = 0;
+  const ctx2 = { ...ctx(fakeEnemies), onKill: () => killed++ };
+  for (let i = 0; i < 4; i++) { c1.attackCd = 0; c1.update(0.016, ctx2); }
+  test('同伴會攻擊感染者', hitBy > 0, `dmg=${hitBy}`);
+  test('打死了會通知', !fakeZb.alive && killed === 1);
+  test('貼身纏鬥會受傷', c1.hp < 80, `hp=${c1.hp}`);
+
+  // ── 解散與陣亡 ──
+  const circlesBefore = T.colliders.circles.length;
+  comps.dismiss(c1);
+  test('解散放回世界', !sv.recruited && comps.list.length === 0 &&
+    T.colliders.circles.length === circlesBefore + 1 && Math.abs(sv.x - c1.x) < 0.01);
+  const c2 = comps.recruit(sv, svIdx);
+  c2.hp = 1;
+  c2.food = 0;
+  comps.update(1, { playerPos: { x: c2.x, z: c2.z }, playerStats: { alive: true, hp: 100 }, enemies: null, now: 2, gh: 5, toast: () => {} });
+  test('餓死會出隊且不再回來', comps.list.length === 0 && sv.dead);
+
+  // ── 同伴存讀檔 ──
+  sv.dead = false;
+  const c3 = comps.recruit(sv, svIdx);
+  c3.mode = 'guard';
+  c3.food = 42;
+  c3.hp = 55;
+  c3.bag.add('arrow', 4);
+  const cdata = JSON.parse(JSON.stringify(comps.serialize()));
+  const ndata = JSON.parse(JSON.stringify(npcs.serialize()));
+  const npcs2 = new N.NpcManager(fakeScene);
+  npcs2.loadFrom(ndata);
+  const comps2 = new C.CompanionManager(fakeScene);
+  comps2.skills = skills;
+  comps2.loadFrom(cdata, npcs2);
+  const r = comps2.list[0];
+  test('存讀:同伴還原', comps2.list.length === 1 && r.npcIdx === svIdx && r.mode === 'guard' &&
+    r.food === 42 && r.hp === 55 && r.bag.count('arrow') === 4);
+  test('存讀:還原後那個 NPC 是入隊狀態', npcs2.npcs[svIdx].recruited);
+  const comps3 = new C.CompanionManager(fakeScene);
+  comps3.loadFrom(null, npcs2);
+  test('舊檔沒有同伴欄位也能跑', comps3.list.length === 0);
+
+  out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
+} catch (err) {
+  out.push('ERROR ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>
+</body></html>
