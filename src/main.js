@@ -345,18 +345,17 @@ function renderTalkPanel() {
   const rows = [];
   // 委託(M8f-2):待交的先問,沒有再看他有沒有新的要給
   const idx = npcs.npcs.indexOf(npc);
-  const pending = quests.pendingFor(idx);
-  if (pending) {
+  // 待交的先列(主線與陣營任務可能同時掛在同一個人身上),再問他有沒有新的要給
+  for (const pending of quests.pendingAllFor(idx)) {
     const def = questDef(pending.id);
     const ok = quests.isComplete(pending, inventory);
     talkActions.push({ act: 'questTurn', q: pending });
     rows.push(actionRow(`${ok ? '✅' : '📜'} 回報「${def.title}」 <span class="req">${quests.progressText(pending, inventory)}</span>`));
-  } else {
-    const offer = quests.offerFor(npc, timeSystem.day);
-    if (offer) {
-      talkActions.push({ act: 'questOffer', def: offer });
-      rows.push(actionRow(`📜 他有事想拜託你 <span class="req">「${offer.title}」</span>`));
-    }
+  }
+  const offer = quests.offerFor(npc, timeSystem.day);
+  if (offer) {
+    talkActions.push({ act: 'questOffer', def: offer });
+    rows.push(actionRow(`📜 他有事想拜託你 <span class="req">「${offer.title}」</span>`));
   }
   if (npc.recruitable && !npc.recruited) {
     talkActions.push({ act: 'recruit' });

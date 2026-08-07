@@ -44,6 +44,13 @@ try {
   log.accept(Q.questDef('main_origin'), 0);
   test('接了就不重複給', log.offerFor(scientist, 1)?.id === 'white_sample');
 
+  // 主線與陣營任務可以同時掛在研究員身上,對話面板要兩件都列得出來
+  log.accept(Q.questDef('white_sample'), 0);
+  test('同一個 NPC 可以同時掛兩件任務',
+    log.pendingAllFor(0).length === 2 && log.pendingAllFor(0).some((q) => q.id === 'white_sample'));
+  test('別的 NPC 身上沒有這些任務', log.pendingAllFor(3).length === 0);
+  log.abandon(log.get('white_sample'));
+
   const inv = new Inventory();
   const q0 = log.get('main_origin');
   inv.add('journal', 2);

@@ -136,9 +136,14 @@ export class QuestLog {
     return null;
   }
 
-  // 這個 NPC 身上有沒有待交的任務(玩家走回去交差用)
+  // 這個 NPC 身上待交的任務(玩家走回去交差用)
   pendingFor(npcIdx) {
     return this.active.find((q) => q.npcIdx === npcIdx) || null;
+  }
+
+  // 同一個 NPC 可能同時掛著主線與陣營任務,對話面板要全部列出來才交得掉
+  pendingAllFor(npcIdx) {
+    return this.active.filter((q) => q.npcIdx === npcIdx);
   }
 
   // spot:visit 型任務的目標座標(由呼叫端提供,純邏輯層不碰世界)
