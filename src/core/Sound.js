@@ -287,6 +287,15 @@ const SOUNDS = {
     const gaps = [0, 0.12, 0.28, 0.5, 0.8];
     for (const d of gaps) tone({ delay: d, f0: 90, f1: 55, type: 'sawtooth', dur: 0.07, vol: 0.28, lp: 600 });
   },
+  // ── 鏽爪幫(M8f-3)──
+  yell: () => { // 掠奪者發現你:活人的吼叫(比感染者的尖嘯有語調)
+    tone({ f0: rnd(210, 260), f1: rnd(120, 150), type: 'sawtooth', dur: 0.26, vol: 0.32, lp: 1200 });
+    tone({ delay: 0.2, f0: rnd(300, 350), f1: 210, type: 'sawtooth', dur: 0.18, vol: 0.2, lp: 1200 });
+  },
+  whistle: () => { // 兩短一長的呼哨:伏擊/夜襲開場
+    tone({ f0: 1900, f1: 2500, dur: 0.28, vol: 0.18, attack: 0.04 });
+    tone({ delay: 0.32, f0: 2500, f1: 1600, dur: 0.36, vol: 0.16, attack: 0.04 });
+  },
 };
 
 // ── 持續音(無縫循環緩衝區,程序化生成後快取)──

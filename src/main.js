@@ -18,6 +18,7 @@ import { VehicleManager } from './systems/Vehicles.js';
 import { NpcManager, FACTIONS, PRICES, giftValue } from './entities/Npc.js';
 import { QuestLog, questDef } from './systems/Quests.js';
 import { CompanionManager, ROLES, FEED_VALUE } from './entities/Companion.js';
+import { RaiderManager } from './entities/Raiders.js';
 import { loadItemModels } from './lib/glb.js';
 
 // ── 基礎場景 ──
@@ -62,20 +63,43 @@ const quests = new QuestLog();      // 任務(M8f-2,規格 7.9)
 const companions = new CompanionManager(scene); // 招募的同伴(規格 7.8)
 companions.skills = skills;         // 領袖魅力 = 同伴上限
 companions.toast = toast;
+// 鏽爪幫掠奪者(M8f-3,規格 7.8;要在 createStructures 之後,營地要挑建築旁的空地)
+const raiders = new RaiderManager(scene);
+raiders.skills = skills;                      // 🤞 談判
+raiders.enemies = enemies;                    // 槍手開槍會引來感染者
+raiders.toast = toast;
+raiders.rustRep = () => npcs.repOf('rust');   // 聲望夠高他們就不動你
+raiders.onCampCleared = () => {
+  toast('☠️ 鏽爪幫營地清空了!補給箱可以搬了');
+  sfx.play('levelup');
+  gainXp(150);
+  for (const [f, n] of Object.entries({ rust: -30, ark: 12, white: 8 })) {
+    const got = npcs.addRep(f, n);
+    if (got) toast(`${FACTIONS[f].icon} ${FACTIONS[f].name}聲望 ${got > 0 ? '+' : ''}${got}(${npcs.repOf(f)})`);
+  }
+};
 enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
-  camera, player, stats, inventory, enemies, toast, skills, models: itemModels,
+  camera, player, stats, inventory, enemies, raiders, toast, skills, models: itemModels,
   isNight: () => timeSystem.nightFactor,
   onHit: (killed, zb) => {
     hitmark(killed);
-    if (killed) {
-      toast(`擊殺了${zb.def.name}`);
-      gainXp(zb.def.xp || 10);
-      questKill(zb.type);
-    }
+    if (killed) onEnemyKilled(zb);
   },
 });
+
+// 擊殺結算(玩家自己殺的、撞死的、同伴殺的都走這裡;xpMult 給同伴的半功勞用)
+function onEnemyKilled(zb, xpMult = 1, msg = null) {
+  toast(msg ?? `擊殺了${zb.def.name}`);
+  gainXp(Math.round((zb.def.xp || 10) * xpMult));
+  questKill(zb.type);
+  if (zb.isRaider) {
+    // 動手就是結仇:鏽爪聲望掉,方舟/白衣會樂見其成(規格 7.8 幫助/敵對行為影響態度)
+    npcs.addRep('rust', -4);
+    npcs.addRep('ark', 1);
+  }
+}
 
 // 擊殺型任務進度(玩家自己殺的、撞死的、同伴殺的都算)
 function questKill(type) {
@@ -223,8 +247,8 @@ let chestRef = null;  // {storage} —— 儲物箱,或皮卡/巴士的車廂(M8
 let chestTitle = '儲物箱';
 let chestActions = [];
 // 面板格子鍵:技能樹加了社交分支後超過 9 項,往後延伸到 0 - =(面板會標出鍵)
-const PANEL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal'];
-const KEY_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+const PANEL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal', 'BracketLeft', 'BracketRight'];
+const KEY_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '[', ']'];
 
 function matsLine() {
   return [...inventory.items.entries()]
@@ -730,7 +754,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') {
     // 對話中按 E = 離開對話(不然會原地重開一次)
     if (TALK_MODES.includes(panelMode)) { setPanel(null); return; }
-    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions);
+    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
     if (!sel) return;
     if (sel.kind === 'companion') { // 同伴下指令(M8f-2)
       compRef = sel.comp;
@@ -755,6 +779,23 @@ addEventListener('keydown', (e) => {
       else if (res.msg) sfx.play('wrench');                    // 拆車/裝零件/修車體
       if (vehicles.driving) combat.viewmodel.visible = false; // 第三人稱視角藏起手上武器
       updateQuickbar();
+      return;
+    }
+    if (sel.kind === 'raidcrate') { // 鏽爪幫營地補給箱(M8f-3;守衛清光才搬得動)
+      if (sel.locked) {
+        toast('☠️ 守衛還在,搬不走');
+        sfx.play('uiOff');
+        return;
+      }
+      const got = raiders.lootCrate();
+      if (got) {
+        const parts = [];
+        for (const [id, n] of Object.entries(got)) { inventory.add(id, n); parts.push(`${ITEMS[id].name}×${n}`); }
+        toast(`搬空補給箱:${parts.join('、')}`);
+        sfx.play('chestOpen');
+        gainXp(XP.loot * 6);
+        updateQuickbar();
+      }
       return;
     }
     if (sel.kind === 'chest') { chestRef = sel.b; chestTitle = '儲物箱'; sfx.play('chestOpen'); setPanel('chest'); return; }
@@ -927,6 +968,20 @@ if (params.has('items')) { // ?items=cloth:4,wood:5
 }
 if (params.has('equip')) combat.equip(params.get('equip')); // 配 ?items= 用,截圖驗證手持模型
 if (params.has('repair')) vehicles.repairAll();             // 全載具修好加滿油(試駕/截圖用)
+if (params.has('camp')) { // ?camp=1 直接傳送到鏽爪幫營地門口(試營地戰用)
+  const c = raiders.camp;
+  player.position.set(c.x + 16, terrainHeight(c.x + 16, c.z), c.z);
+  player.yaw = Math.PI / 2; // 面朝營地(-x 方向)
+}
+if (params.has('ambush')) { // ?ambush=3 立刻在身邊放 N 個伏擊者
+  const n = parseInt(params.get('ambush')) || 3;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = raiders.spawn(i === 0 ? 'gunner' : 'thug',
+      player.position.x + Math.cos(a) * 12, player.position.z + Math.sin(a) * 12, 'ambush');
+    r.lastKnown = { x: player.position.x, z: player.position.z };
+  }
+}
 if (params.has('rep')) { // ?rep=ark:80,rust:5 直接設陣營聲望(測交易價格用)
   for (const part of params.get('rep').split(',')) {
     const [f, v] = part.split(':');
@@ -971,7 +1026,7 @@ if (params.has('panel')) {
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions, raiders };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -1140,16 +1195,12 @@ function loop() {
 
   player.update(dt);
   vehicles.update(dt, {
-    player, stats, enemies, camera, now: elapsed,
+    player, stats, enemies, raiders, camera, now: elapsed,
     onRam: (killed, zb) => {
       hitmark(killed);
       sfx.play('hitFlesh');
       sfx.play('thudMetal', { vol: 0.6 });
-      if (killed) {
-        toast(`💥 撞飛了${zb.def.name}!`);
-        gainXp(zb.def.xp || 10);
-        questKill(zb.type);
-      }
+      if (killed) onEnemyKilled(zb, 1, `💥 撞飛了${zb.def.name}!`);
     },
   });
   stats.update(dt, dt * timeSystem.hoursPerRealSecond);
@@ -1157,12 +1208,22 @@ function loop() {
   enemies.update(dt, player, stats, timeSystem.nightFactor, elapsed, buildings);
   npcs.update(dt, player.position, timeSystem.day); // 靠近時轉頭看你 + 每天補貨
   companions.update(dt, {                            // 同伴:跟隨/駐守工作/自動迎敵(M8f-2)
-    playerPos: player.position, playerStats: stats, enemies, now: elapsed,
+    playerPos: player.position, playerStats: stats, enemies, raiders, now: elapsed,
     gh: dt * timeSystem.hoursPerRealSecond, toast,
-    onKill: (zb, c) => {
-      toast(`${c.def.icon} ${c.name}解決了${zb.def.name}`);
-      gainXp(Math.round((zb.def.xp || 10) * 0.5)); // 同伴殺的算你一半功勞
-      questKill(zb.type);
+    onKill: (zb, c) => onEnemyKilled(zb, 0.5, `${c.def.icon} ${c.name}解決了${zb.def.name}`), // 同伴殺的算你一半功勞
+  });
+  raiders.update(dt, {                               // 鏽爪幫掠奪者(M8f-3)
+    playerPos: player.position, playerStats: stats, crouching: player.crouching,
+    night: timeSystem.nightFactor, now: elapsed, buildings, companions: companions.list,
+    hearNoise: (x, z, r, n) => enemies.hearNoise(x, z, r, n), // 槍手的槍聲一樣引怪
+    onAttack: (dmg, cause) => {
+      if (vehicles.interceptAttack(dmg)) return; // 開車時挨打的是車體
+      stats.damage(dmg, cause);                  // 掠奪者是活人,不會傳染感染值
+    },
+    onHitCompanion: (c, dmg, name) => {
+      c.hp -= dmg;
+      sfx.play3d('hurt', c.x, c.z, { vol: 0.7 });
+      if (c.hp <= 0) c.die({ toast, onDeath: (dead) => companions.removeDead(dead) }, `${c.name}被${name}打死了`);
     },
   });
   combat.update(dt);
@@ -1185,7 +1246,7 @@ function loop() {
       promptEl.classList.remove('hidden');
       promptEl.innerHTML = `<b>左鍵</b> 放置${buildings.placing.name}(${costText(buildings.placing)}) · <b>B</b> 取消`;
     } else {
-      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions);
+      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
       promptEl.classList.toggle('hidden', !sel);
       if (sel) promptEl.innerHTML = `<b>E</b> ${sel.label}`;
     }
@@ -1214,6 +1275,13 @@ function loop() {
         sfx.play('pickup');
       }
       updatePartyHud();
+      // 鏽爪幫:路上伏擊 + 夜襲據點(規格 7.8)
+      if (raiders.maybeAmbush(timeSystem, player.position, elapsed)) {
+        toast('☠️ 「東西留下,人可以走!」——鏽爪幫圍上來了');
+      }
+      if (raiders.maybeRaid(timeSystem, player.position, buildings, elapsed)) {
+        toast('☠️ 有人在砸你的牆——鏽爪幫來搶據點了!');
+      }
       // 屍潮夜襲檢查(規格 7.2)
       const horde = enemies.maybeHorde(timeSystem, player.position, elapsed);
       if (horde) {
@@ -1241,7 +1309,7 @@ function loop() {
   }
   if (fpsTimer >= 0.5) {
     fpsEl.textContent = `FPS ${Math.round(fpsFrames / fpsTimer)}`;
-    const chaser = enemies.nearestChaserDist(player.position);
+    const chaser = Math.min(enemies.nearestChaserDist(player.position), raiders.nearestChaserDist(player.position));
     const warn = chaser < 40 ? `<br><span style="color:#c84a3c">⚠ 被追擊中!</span>` : '';
     clockEl.innerHTML = `<span class="day">第 ${timeSystem.day} 天</span><br><span class="time">${timeSystem.clockText}</span><br><span class="region">${regionName(player.position.x, player.position.z)}</span>${warn}`;
     fpsFrames = 0;

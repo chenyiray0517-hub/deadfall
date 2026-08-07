@@ -51,7 +51,7 @@ export function applyTakenLoot(arr) {
   }
 }
 
-export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills, vehicles, npcs, quests, companions }) {
+export function saveGame({ timeSystem, stats, inventory, player, combat, buildings, enemies, skills, vehicles, npcs, quests, companions, raiders }) {
   const data = {
     v: 1,
     skills: skills ? skills.serialize() : null,
@@ -72,6 +72,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
     npcs: npcs ? npcs.serialize() : null,             // M8f 聲望與商人庫存(舊檔沒有 = 初始狀態)
     quests: quests ? quests.serialize() : null,       // M8f-2 任務進度
     companions: companions ? companions.serialize() : null, // M8f-2 同伴(靠 npc 索引對回去)
+    raiders: raiders ? raiders.serialize() : null,     // M8f-3 鏽爪幫(營地狀態 + 場上的掠奪者)
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -82,7 +83,7 @@ export function saveGame({ timeSystem, stats, inventory, player, combat, buildin
 }
 
 // data 來自 peekSave();呼叫端負責之後的 HUD 重繪
-export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions }) {
+export function loadGame(data, { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions, raiders }) {
   timeSystem.timeOfDay = data.time.t;
   timeSystem.day = data.time.day;
 
@@ -109,6 +110,7 @@ export function loadGame(data, { timeSystem, stats, inventory, player, combat, b
   if (npcs) npcs.loadFrom(data.npcs);
   if (quests) quests.loadFrom(data.quests);
   if (companions) companions.loadFrom(data.companions, npcs); // 一定要在 npcs.loadFrom 之後
+  if (raiders) raiders.loadFrom(data.raiders);
   applyTakenLoot(data.loot);
   for (const f of data.fires) placeCampfire(scene, f.x, f.z);
 }

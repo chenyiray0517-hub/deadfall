@@ -37,7 +37,7 @@ try {
   full.points = 99;
   for (const d of SKILL_DEFS) for (let i = 0; i < d.max; i++) full.up(d.id);
   // 生存6 + 戰鬥6 + 製作3 + 社交6(M8f 交易折扣/口才,M8f-2 領袖魅力)
-  test('全滿等總點數 = 21', 99 - full.points === 21, `${99 - full.points}`);
+  test('全滿等總點數 = 23', 99 - full.points === 23, `${99 - full.points}`); // M8f-3 社交多了「談判」
   test('輕足 -50% 噪音', full.noiseMult() === 0.5);
   test('採集達人 70% 加成', Math.abs(full.bonusLootChance() - 0.7) < 1e-9);
   test('近戰 +40% 遠程 +30%', Math.abs(full.meleeMult() - 1.4) < 1e-9 && Math.abs(full.rangedMult() - 1.3) < 1e-9);

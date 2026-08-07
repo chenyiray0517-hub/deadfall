@@ -6,11 +6,12 @@ import { sfx } from '../core/Sound.js';
 // 玩家戰鬥(M6):近戰揮擊/遠程射擊、近戰耐久、槍聲噪音、第一人稱武器模型
 // 命中判定不用 raycast 物件求交:近戰是面前扇形取最近,遠程是視線射線對感染者圓柱心的最近距離
 export class Combat {
-  constructor({ camera, player, stats, inventory, enemies, toast, isNight, onHit, skills, models }) {
+  constructor({ camera, player, stats, inventory, enemies, raiders, toast, isNight, onHit, skills, models }) {
     this.player = player;
     this.stats = stats;
     this.inventory = inventory;
     this.enemies = enemies;
+    this.raiders = raiders || null; // 鏽爪幫掠奪者(M8f-3;跟感染者同一套鴨子介面)
     this.toast = toast;
     this.isNight = isNight;
     this.onHit = onHit || (() => {});
@@ -38,6 +39,13 @@ export class Combat {
     this.equipped = this.equipped === id ? null : id;
     this.buildViewmodel();
     sfx.play('equip');
+  }
+
+  // 可以打的東西:感染者 + 掠奪者(兩邊的 alive/pos/def/takeDamage 介面一致)
+  targets() {
+    const zs = this.enemies?.zombies ?? [];
+    const rs = this.raiders?.list ?? [];
+    return rs.length ? zs.concat(rs) : zs;
   }
 
   durabilityOf(id) {
@@ -86,7 +94,7 @@ export class Combat {
     const fz = -Math.cos(this.player.yaw);
     let best = null;
     let bestD = def.range + 0.35;
-    for (const zb of this.enemies.zombies) {
+    for (const zb of this.targets()) {
       if (!zb.alive) continue;
       const dx = zb.pos.x - p.x;
       const dz = zb.pos.z - p.z;
@@ -169,7 +177,7 @@ export class Combat {
     const dir = this.aimDir();
     let best = null;
     let bestT = def.range;
-    for (const zb of this.enemies.zombies) {
+    for (const zb of this.targets()) {
       if (!zb.alive) continue;
       const cy = zb.pos.y + (zb.def.dog ? 0.45 : 1.1); // 胸口/軀幹中心
       const vx = zb.pos.x - origin.x;

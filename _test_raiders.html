@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const { Skills, SKILL_DEFS } = await import('./src/player/Skills.js');
+  const R = await import('./src/entities/Raiders.js');
+  const N = await import('./src/entities/Npc.js');
+  const C = await import('./src/entities/Companion.js');
+  const I = await import('./src/systems/Interaction.js');
+  const B = await import('./src/systems/Building.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const mgr = new R.RaiderManager(fakeScene);
+
+  // 假世界:記錄掠奪者對外造成的效果
+  const log = { hits: [], noise: 0, compHits: [] };
+  const world = (px, pz, over = {}) => ({
+    playerPos: { x: px, y: 0, z: pz },
+    playerStats: { alive: true },
+    crouching: false, night: 0, now: 10,
+    buildings: null, companions: [],
+    onAttack: (dmg, cause) => log.hits.push({ dmg, cause }),
+    onHitCompanion: (c, dmg) => log.compHits.push({ c, dmg }),
+    hearNoise: () => { log.noise++; },
+    ...over,
+  });
+
+  // ── 資料與營地生成 ──
+  test('三種掠奪者齊全', ['thug', 'gunner', 'boss'].every((t) => R.RAIDER_TYPES[t]?.name));
+  test('頭目最硬', R.RAIDER_TYPES.boss.hp > R.RAIDER_TYPES.thug.hp * 3);
+  test('槍手是遠程', R.RAIDER_TYPES.gunner.ranged === true && R.RAIDER_TYPES.gunner.range > 20);
+  test('營地有座標', Number.isFinite(mgr.camp.x) && Number.isFinite(mgr.camp.z),
+    `${Math.round(mgr.camp.x)},${Math.round(mgr.camp.z)}`);
+  test('營地遠離出生點',
+    Math.hypot(mgr.camp.x - T.SPAWN.x, mgr.camp.z - T.SPAWN.z) > 140,
+    `${Math.round(Math.hypot(mgr.camp.x - T.SPAWN.x, mgr.camp.z - T.SPAWN.z))}m`);
+  test('營地不在水裡也不壓建築',
+    !T.isDeepWater(mgr.camp.x, mgr.camp.z) && !T.insideNoSpawn(mgr.camp.x, mgr.camp.z, 1));
+  test('守衛有 7 人含頭目',
+    mgr.aliveCount('camp') === 7 && mgr.list.some((r) => r.type === 'boss'),
+    `n=${mgr.aliveCount('camp')}`);
+  test('守衛站在營地附近',
+    mgr.list.every((r) => Math.hypot(r.pos.x - mgr.camp.x, r.pos.z - mgr.camp.z) < 12));
+  test('營地有碰撞箱(帳篷/路障/箱子)',
+    T.colliders.boxes.some((b) => b.minX > mgr.camp.x - 14 && b.maxX < mgr.camp.x + 14
+      && b.minZ > mgr.camp.z - 14 && b.maxZ < mgr.camp.z + 14));
+  test('守衛初始不會主動衝出來', mgr.list.every((r) => r.state === 'guard'));
+
+  // ── 補給箱:清空守衛前搬不動 ──
+  const atCrate = { position: { x: mgr.camp.crateX + 1, y: 0, z: mgr.camp.crateZ } };
+  let sel = mgr.findInteraction(atCrate.position);
+  test('走近補給箱有提示', sel?.kind === 'raidcrate', sel?.label);
+  test('守衛還在 = 上鎖', sel.locked === true);
+  test('上鎖時拿不到東西', mgr.lootCrate() === null);
+  test('Interaction 會轉呼叫掠奪者',
+    I.findInteraction(atCrate, new Inventory(), null, null, null, null, null, mgr)?.kind === 'raidcrate');
+
+  // ── 打倒守衛 → 營地清空 ──
+  let cleared = 0;
+  mgr.onCampCleared = () => { cleared++; };
+  const boss = mgr.list.find((r) => r.type === 'boss');
+  const guards = mgr.list.filter((r) => r.mode === 'camp');
+  test('打不死就不算擊殺', boss.takeDamage(10, { x: 0, z: 0 }, null, 1) === false);
+  test('挨打會轉入追擊', boss.state === 'chase');
+  test('同夥會被喊過來', mgr.list.filter((r) => r.state === 'chase').length > 1);
+  for (const g of guards) g.takeDamage(9999, { x: 0, z: 0 }, null, 1);
+  test('全部倒下', mgr.aliveCount('camp') === 0);
+  mgr.update(0.1, world(0, 0));
+  test('營地清空會通知一次', cleared === 1 && mgr.camp.cleared === true);
+  mgr.update(0.1, world(0, 0));
+  test('清空只通知一次', cleared === 1);
+
+  // ── 屍體與掉落 ──
+  test('頭目掉軍用鑰匙卡', boss.corpseLoot.keycard === 1 && !!ITEMS.keycard);
+  test('鑰匙卡是劇情物品(不能交易)', ITEMS.keycard.quest === true && !N.PRICES.keycard);
+  const invQ = new Inventory();
+  invQ.add('keycard', 1);
+  invQ.add('wood', 8);
+  B.dropHalfInventory(invQ);
+  test('死亡不會掉鑰匙卡', invQ.count('keycard') === 1 && invQ.count('wood') === 4);
+  test('打手身上有瓶蓋', guards.filter((g) => g.type === 'thug').every((g) => g.corpseLoot.caps > 0));
+  const corpseSel = mgr.findInteraction({ x: boss.pos.x, z: boss.pos.z });
+  test('屍體可搜刮(走 corpse 分支)',
+    corpseSel?.kind === 'corpse' && corpseSel.zombie === boss, corpseSel?.label);
+
+  // ── 補給箱(清空後)──
+  sel = mgr.findInteraction(atCrate.position);
+  test('清空後補給箱解鎖', sel.kind === 'raidcrate' && !sel.locked);
+  const crate = mgr.lootCrate();
+  test('補給箱有好東西', crate.caps >= 60 && crate.ammo9 > 0 && crate.antibiotic > 0);
+  test('補給箱只能搬一次', mgr.lootCrate() === null);
+  test('搬完就不再提示', mgr.findInteraction(atCrate.position) === null);
+
+  // ── 伏擊(規格 7.8)──
+  const mgr2 = new R.RaiderManager(fakeScene);
+  const skills = new Skills();
+  mgr2.skills = skills;
+  mgr2.rustRep = () => 15;
+  const ts = (day, t) => ({ day, timeOfDay: t });
+  // 離營地夠遠的一個落腳處(測試頁一次開好幾個 manager,各自的營地位置不一定相同)
+  const away = (() => {
+    for (const d of [150, 200, 260, 320]) {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = mgr2.camp.x + dx * d;
+        const z = mgr2.camp.z + dz * d;
+        if (Math.abs(x) < 470 && Math.abs(z) < 470 && !T.isDeepWater(x, z)) return { x, z };
+      }
+    }
+    return { x: 0, z: 0 };
+  })();
+  test('天數沒到不伏擊', mgr2.maybeAmbush(ts(2, 12), away, 1) === 0);
+  test('時刻沒到不伏擊', mgr2.maybeAmbush(ts(9, 3), away, 1) === 0);
+  test('營地附近不另外伏擊',
+    mgr2.maybeAmbush(ts(9, 20), { x: mgr2.camp.x + 20, z: mgr2.camp.z }, 1) === 0);
+  const n1 = mgr2.maybeAmbush(ts(9, 20), away, 1);
+  test('時候到了會伏擊', n1 >= 2, `n=${n1}`);
+  test('伏擊者一開始就在追你',
+    n1 > 0 && mgr2.list.filter((r) => r.mode === 'ambush').every((r) => r.state === 'chase' && r.lastKnown));
+  test('伏擊者不會生在腳邊',
+    mgr2.list.filter((r) => r.mode === 'ambush')
+      .every((r) => Math.hypot(r.pos.x - away.x, r.pos.z - away.z) > 19));
+  test('伏擊有冷卻', mgr2.nextAmbushDay > 9 && mgr2.maybeAmbush(ts(9, 22), away, 1) === 0);
+
+  const mgr3 = new R.RaiderManager(fakeScene);
+  mgr3.rustRep = () => 80;
+  test('鏽爪聲望高就沒人動你', mgr3.maybeAmbush(ts(20, 20), { x: 0, z: 0 }, 1) === 0);
+  const mgr4 = new R.RaiderManager(fakeScene);
+  mgr4.rustRep = () => 0;
+  mgr4.skills = { raiderCalmChance: () => 1 };
+  test('談判技能可以勸退', mgr4.maybeAmbush(ts(20, 20), { x: 0, z: 0 }, 1) === 0);
+  test('談判在社交分支',
+    SKILL_DEFS.some((s) => s.id === 'negotiate' && s.branch === '社交'));
+  skills.points = 1;
+  skills.up('negotiate');
+  test('談判技能有機率值', skills.raiderCalmChance() > 0);
+
+  // ── 夜襲據點 ──
+  const mgr5 = new R.RaiderManager(fakeScene);
+  mgr5.rustRep = () => 0;
+  const base = { x: 0, z: 0 };
+  const fakeBuildings = {
+    list: [{ x: 0, z: 0, hp: 100 }, { x: 2, z: 0, hp: 100 }, { x: 0, z: 2, hp: 100 }],
+    respawnPoint: () => base,
+    damage(b, d) { b.hp -= d; },
+    blockingStructure: () => null,
+  };
+  test('白天不夜襲', mgr5.maybeRaid(ts(9, 12), base, fakeBuildings, 1) === 0);
+  test('沒據點就不夜襲', mgr5.maybeRaid(ts(9, 23), base, { list: [], respawnPoint: () => null }, 1) === 0);
+  test('人不在家不夜襲', mgr5.maybeRaid(ts(9, 23), { x: 300, z: 300 }, fakeBuildings, 1) === 0);
+  const n2 = mgr5.maybeRaid(ts(9, 23), base, fakeBuildings, 1);
+  test('夜裡會來砸據點', n2 >= 3, `n=${n2}`);
+  const raider = mgr5.list.find((r) => r.mode === 'raid');
+  test('夜襲者進入 raid 狀態', raider?.state === 'raid');
+  const hp0 = fakeBuildings.list[0].hp;
+  raider.pos.set(0.5, 0, 0.5);
+  raider.attackCd = 0;
+  raider.update(0.1, world(300, 300, { buildings: fakeBuildings }));
+  test('夜襲者會砸建築', fakeBuildings.list[0].hp < hp0, `${hp0} → ${fakeBuildings.list[0].hp}`);
+
+  // ── 攻擊玩家與同伴 ──
+  const mgr6 = new R.RaiderManager(fakeScene);
+  const thug = mgr6.spawn('thug', 0, 0, 'ambush');
+  thug.lastKnown = { x: 1, z: 0 };
+  thug.lastSeenTime = 10;
+  thug.attackCd = 0;
+  log.hits = [];
+  thug.update(0.05, world(1, 0));
+  test('近戰掠奪者會打玩家', log.hits.length === 1 && log.hits[0].dmg === R.RAIDER_TYPES.thug.dmg,
+    JSON.stringify(log.hits));
+  test('死因寫的是掠奪者', log.hits[0].cause.includes('鏽爪'), log.hits[0].cause);
+
+  const gunner = mgr6.spawn('gunner', 0, 0, 'ambush');
+  gunner.lastKnown = { x: 10, z: 0 };
+  gunner.lastSeenTime = 10;
+  gunner.def = { ...gunner.def, accuracy: 1 }; // 固定命中,測噪音與傷害
+  gunner.attackCd = 0;
+  log.hits = [];
+  log.noise = 0;
+  gunner.update(0.05, world(10, 0));
+  test('槍手隔著距離開槍', log.hits.length === 1, JSON.stringify(log.hits));
+  test('槍聲會引來感染者', log.noise === 1);
+
+  const fakeComp = { alive: true, x: 1, z: 0, hp: 80 };
+  const thug2 = mgr6.spawn('thug', 0, 0, 'ambush');
+  thug2.lastKnown = { x: 12, z: 0 };
+  thug2.lastSeenTime = 10;
+  thug2.attackCd = 0;
+  log.hits = [];
+  log.compHits = [];
+  thug2.update(0.05, world(12, 0, { companions: [fakeComp] }));
+  test('同伴擋在前面就先打同伴', log.compHits.length === 1 && log.hits.length === 0);
+
+  // ── 同伴會回擊掠奪者 ──
+  const comp = new C.Companion(
+    { def: { name: '倖存者' }, x: 0, z: 0, facing: 0, mesh: { position: { set() {} }, rotation: {} } },
+    0, 'gunsmith'
+  );
+  comp.x = 1; comp.z = 0;
+  const threat = comp.nearestThreat({ zombies: [] }, mgr6);
+  test('同伴看得到掠奪者', !!threat && threat.zb.isRaider === true);
+
+  // ── 存讀檔 ──
+  const mgr7 = new R.RaiderManager(fakeScene);
+  mgr7.camp.cleared = true;
+  mgr7.camp.crateLooted = true;
+  mgr7.nextAmbushDay = 17;
+  mgr7.list[0].hp = 12;
+  mgr7.list[1].takeDamage(9999, { x: 0, z: 0 }, null, 1);
+  const data = mgr7.serialize();
+  const mgr8 = new R.RaiderManager(fakeScene);
+  mgr8.loadFrom(data);
+  test('存讀:營地狀態還原', mgr8.camp.cleared && mgr8.camp.crateLooted && mgr8.nextAmbushDay === 17);
+  test('存讀:人數與血量還原',
+    mgr8.list.length === mgr7.list.length && mgr8.list[0].hp === 12);
+  test('存讀:屍體還原成可搜刮的屍體',
+    mgr8.list[1].corpse === true && !mgr8.list[1].alive && !!mgr8.list[1].corpseLoot);
+  const mgr9 = new R.RaiderManager(fakeScene);
+  mgr9.loadFrom(null);
+  test('舊檔沒有 raiders 欄位也能跑', mgr9.aliveCount('camp') === 7 && !mgr9.camp.cleared);
+
+  out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
+} catch (err) {
+  out.push('ERROR ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>
+</body></html>

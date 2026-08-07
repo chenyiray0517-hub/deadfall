@@ -436,7 +436,7 @@ export class VehicleManager {
   }
 
   // 駕駛物理:每幀由 main 呼叫;沒在開車就什麼都不做
-  // ctx = { player, stats, enemies, camera, now, onRam(killed, zb) }
+  // ctx = { player, stats, enemies, raiders, camera, now, onRam(killed, zb) }
   update(dt, ctx) {
     const v = this.driving;
     if (!v) return;
@@ -495,12 +495,13 @@ export class VehicleManager {
       }
     }
 
-    // 皮卡/巴士衝撞感染者(規格 7.5;每隻 0.8 秒內只判一次)
-    if (v.def.ram && enemies && Math.abs(v.speed) > 4.5) {
+    // 皮卡/巴士衝撞感染者與掠奪者(規格 7.5;每隻 0.8 秒內只判一次)
+    if (v.def.ram && (enemies || ctx.raiders) && Math.abs(v.speed) > 4.5) {
       const front = v.def.ramFront ?? 2.1;
       const hx = v.x + fx * Math.sign(v.speed) * front;
       const hz = v.z + fz * Math.sign(v.speed) * front;
-      for (const zb of enemies.zombies) {
+      const rammable = (enemies?.zombies ?? []).concat(ctx.raiders?.list ?? []);
+      for (const zb of rammable) {
         if (!zb.alive || now - (zb._ramT ?? -9) < 0.8) continue;
         if (Math.hypot(zb.pos.x - hx, zb.pos.z - hz) > (v.def.ramR ?? 1.7)) continue;
         zb._ramT = now;

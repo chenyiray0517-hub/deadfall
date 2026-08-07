@@ -32,7 +32,8 @@
 - [x] **M8e 摩托車與巴士**(2026-07-30):補齊規格 7.5 的四種載具——摩托車(快/省油/噪音中)+ 巴士(進階,改裝成移動據點:車廂儲物 + 車尾臥鋪重生點 + 重型衝撞);皮卡貨斗一併變成移動倉庫
 - [x] **M8f-1 NPC 與交易**(2026-07-30):7 個 NPC(流浪商人×2/方舟醫生/白衣會研究員/倖存者×3)+ E 交談面板(交易/打聽消息/送禮)+ 瓶蓋貨幣 + 三陣營聲望(影響買賣價)+ 技能樹社交分支(交易折扣/口才)
 - [x] **M8f-2 任務與招募**(2026-07-30):6 個支線任務(倖存者個人任務×3 + 陣營任務×3,三種目標 collect/kill/visit)+ J 鍵任務日誌 + visit 任務的世界光柱標記 + 招募倖存者(四種專長:醫護/農夫/槍匠/斥候)跟隨作戰、駐守產出物資、要餵食,同伴上限吃新技能「領袖魅力」
-- [ ] M8f-3 敵對與主線:鏽爪幫掠奪者(伏擊/突襲據點)、白衣會血清主線、三結局
+- [x] **M8f-3a 鏽爪幫**(2026-08-07):掠奪者三型(打手/槍手/頭目)+ 固定營地(帳篷/路障/補給箱,清空拿頭目的軍用鑰匙卡)+ 路上伏擊(第 4 天起)+ 夜襲據點砸建築(第 6 天起)+ 🤞 談判技能與鏽爪聲望可免衝突;掠奪者跟感染者共用同一套鴨子介面,同伴會回擊、皮卡撞得死
+- [ ] M8f-3b 主線與結局:白衣會血清主線(研究員日誌 → 血清配方三部曲 → 潛入研究設施)、三結局
 
 ## 架構備忘
 
@@ -153,6 +154,15 @@
   - 存讀檔:`quests`(進行中 + 已完成天數)與 `companions`(依 npc 索引)兩個新欄位;**companions.loadFrom 一定要在 npcs.loadFrom 之後**。舊檔沒有這兩欄 = 沒任務沒同伴。
   - 開發參數:`?quest=sv_food,ark_supply` 直接接任務、`?party=1` 直接招募第一個倖存者、`?panel=quests|quest|companion|feed`。
   - `_test_quests.html`:任務/招募/同伴邏輯測試頁(59 條),headless --dump-dom 跑。
+- M8f-3a 鏽爪幫架構(2026-08-07):
+  - 全在 `src/entities/Raiders.js`:RAIDER_TYPES(thug/gunner/boss)+ Raider + RaiderManager。**Raider 刻意做成跟 Zombie 一樣的鴨子介面**(alive/pos/def/state/takeDamage(dmg,fromPos,mgr,now)/corpse/looted/corpseLoot/stuckArrows),所以 Combat 命中判定、搜屍互動、同伴 AI、皮卡衝撞都能原封不動地把他們當目標;分辨用 `isRaider` 旗標。Combat 新增 `targets()` = 感染者 + 掠奪者。
+  - 掠奪者是活人:沒有視錐,靠距離 + `losBlocked`(蹲伏 ×0.6、夜晚 ×0.8);打人走 `stats.damage` 不是 applyBite(**不會傳染感染值**);槍手開槍會 `enemies.hearNoise` 把感染者引過來。
+  - 三種來源(`mode`):`camp` 營地守衛 7 人(4 打手 + 2 槍手 + 頭目,seed 31337 挑一棟遠離出生點 150m 以上的穀倉旁空地;帳篷/路障/補給箱都掛 collider)、`ambush` 路上伏擊(第 4 天起、每 2~4 天,離營地 90m 外才觸發)、`raid` 夜襲據點(第 6 天起、每 4~8 天,夜間 + 你蓋了 3 棟以上 + 人在家 60m 內,直接找 `buildings.list` 最近的建築砸)。
+  - 免衝突:鏽爪聲望 ≥ 60 就不動你;🤞 談判(SKILL_DEFS 第 13 個技能,**一律 append**)每級 35% 當場勸退。**格子鍵因此延伸到 `[` `]`**(PANEL_KEYS/KEY_LABELS 共 14 格)。
+  - 營地清空(`aliveCount('camp') === 0`)→ `onCampCleared`:鏽爪 -30、方舟 +12、白衣 +8、150 XP,補給箱解鎖(`kind:'raidcrate'`,一次性)。頭目屍體掉 `keycard` 軍用鑰匙卡(主線要用)。殺掠奪者也會扣鏽爪聲望(main 的 `onEnemyKilled` 統一結算擊殺:XP/任務/聲望)。
+  - 存讀檔:`raiders` 欄位(營地 cleared/箱子 + 伏擊夜襲排程 + 場上單位;舊檔沒有 = 初始營地)。
+  - 開發參數:`?camp=1` 傳送到營地門口、`?ambush=3` 立刻在身邊放 N 個伏擊者。
+  - `_test_raiders.html`:鏽爪幫邏輯測試頁(56 條),headless --dump-dom 跑。**注意**:測試頁一次開好幾個 RaiderManager 時,後開的營地會被前一個的 collider 擠到別的位置(`pickCampSpot` 會查 `insideAnyBox`),所以測伏擊要用「離該 manager 自己的營地夠遠」的座標,不能寫死原點。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

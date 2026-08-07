@@ -22,6 +22,7 @@ export const SKILL_DEFS = [
   { id: 'barter',   branch: '社交', icon: '💰', name: '交易折扣', max: 2, desc: (lv) => `買價 -${10 * lv}%、賣價 +${10 * lv}%` },
   { id: 'persuade', branch: '社交', icon: '💬', name: '口才',     max: 2, desc: (lv) => `送禮的聲望加成 +${50 * lv}%` },
   { id: 'leader',   branch: '社交', icon: '🎖', name: '領袖魅力', max: 2, desc: (lv) => `同伴上限 ${1 + lv} 人` },
+  { id: 'negotiate', branch: '社交', icon: '🤞', name: '談判',    max: 2, desc: (lv) => `${35 * lv}% 機率讓掠奪者放你走` },
 ];
 
 // 熟練度軌(規格 7.7:常跑步→體力上限、常做菜→烹飪回復、常用槍→後座力;近戰是主要戰鬥手段,補一軌)
@@ -134,6 +135,7 @@ export class Skills {
   buildHpMult()  { return this.levelOf('builder') ? 1.5 : 1; }     // Buildings.place
   bandageBonus() { return this.levelOf('medic') ? 10 : 0; }        // Items bandage
   partyMax()     { return 1 + this.levelOf('leader'); }            // CompanionManager 同伴上限
+  raiderCalmChance() { return 0.35 * this.levelOf('negotiate'); }  // RaiderManager 伏擊時談判脫身
   cookMult()     { return 1 + 0.1 * this.profLevel('cook'); }      // Items cooked/boiled
   gunCdMult()    { return 1 - 0.05 * this.profLevel('gun'); }      // Combat.shoot 冷卻(槍,弓不算)
   meleeStamMult() { return 1 - 0.05 * this.profLevel('melee'); }   // Combat.melee 體力消耗

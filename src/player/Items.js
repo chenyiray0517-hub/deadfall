@@ -131,6 +131,8 @@ export const ITEMS = {
   musicbox: { name: '音樂盒', icon: '🎵', quest: true },
   photo: { name: '全家福照片', icon: '🖼', quest: true },
   dogtag: { name: '身分名牌', icon: '🏷', quest: true },
+  // ── 劇情物品(M8f-3,規格 6.10)──
+  keycard: { name: '軍用鑰匙卡', icon: '💳', quest: true }, // 鏽爪頭目身上;軍事實驗室門禁
 };
 
 // 快捷欄:依此優先序顯示「持有的」消耗品,最多 8 格

@@ -78,17 +78,20 @@ export class Companion {
 
   hungry() { return this.food < 25; }
 
-  // 最近的威脅:優先追擊中的,其次是路過的
-  nearestThreat(enemies) {
+  // 最近的威脅:感染者與掠奪者一起看,優先追擊中的,其次是路過的
+  nearestThreat(enemies, raiders = null) {
     let best = null;
-    let bd = ENGAGE_DIST;
-    for (const zb of enemies.zombies) {
-      if (!zb.alive) continue;
-      const d = Math.hypot(zb.pos.x - this.x, zb.pos.z - this.z);
-      if (d > bd) continue;
-      // 追擊中的敵人優先(距離打七折當作權重)
-      const w = zb.state === 'chase' ? d * 0.7 : d;
-      if (!best || w < best.w) best = { zb, d, w };
+    const bd = ENGAGE_DIST;
+    const lists = [enemies?.zombies ?? [], raiders?.list ?? []];
+    for (const list of lists) {
+      for (const zb of list) {
+        if (!zb.alive) continue;
+        const d = Math.hypot(zb.pos.x - this.x, zb.pos.z - this.z);
+        if (d > bd) continue;
+        // 追擊中的敵人優先(距離打七折當作權重)
+        const w = zb.state === 'chase' ? d * 0.7 : d;
+        if (!best || w < best.w) best = { zb, d, w };
+      }
     }
     return best;
   }
@@ -107,7 +110,7 @@ export class Companion {
     this.facing = Math.atan2(dx, dz);
   }
 
-  // ctx: {playerPos, playerStats, enemies, now, gh(這一幀的遊戲小時), toast, onKill}
+  // ctx: {playerPos, playerStats, enemies, raiders, now, gh(這一幀的遊戲小時), toast, onKill}
   update(dt, ctx) {
     if (!this.alive) return;
     const { playerPos, enemies, now, gh } = ctx;
@@ -123,8 +126,8 @@ export class Companion {
       if (this.hp <= 0) return this.die(ctx, `${this.name}餓死了`);
     }
 
-    // 戰鬥:附近有感染者就迎上去打(規格 7.8「會自動防守」)
-    const threat = enemies ? this.nearestThreat(enemies) : null;
+    // 戰鬥:附近有感染者/掠奪者就迎上去打(規格 7.8「會自動防守」)
+    const threat = enemies || ctx.raiders ? this.nearestThreat(enemies, ctx.raiders) : null;
     if (threat) {
       if (threat.d > ATTACK_RANGE) {
         this.moveTo(threat.zb.pos.x, threat.zb.pos.z, 3.4 * this.def.speed, dt);
@@ -136,8 +139,8 @@ export class Companion {
         sfx.play3d('hitFlesh', this.x, this.z, { vol: 0.7 });
         if (killed) ctx.onKill?.(threat.zb, this);
       }
-      // 貼身纏鬥會挨咬
-      if (threat.d < 1.9 && this.hurtCd <= 0) {
+      // 貼身纏鬥會挨咬(掠奪者的傷害由他們自己的攻擊迴圈算,不在這裡重複扣)
+      if (!threat.zb.isRaider && threat.d < 1.9 && this.hurtCd <= 0) {
         this.hurtCd = 1.5;
         this.hp -= threat.zb.def.dmg;
         sfx.play3d('hurt', this.x, this.z, { vol: 0.7 });
