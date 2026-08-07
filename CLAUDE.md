@@ -33,7 +33,7 @@
 - [x] **M8f-1 NPC 與交易**(2026-07-30):7 個 NPC(流浪商人×2/方舟醫生/白衣會研究員/倖存者×3)+ E 交談面板(交易/打聽消息/送禮)+ 瓶蓋貨幣 + 三陣營聲望(影響買賣價)+ 技能樹社交分支(交易折扣/口才)
 - [x] **M8f-2 任務與招募**(2026-07-30):6 個支線任務(倖存者個人任務×3 + 陣營任務×3,三種目標 collect/kill/visit)+ J 鍵任務日誌 + visit 任務的世界光柱標記 + 招募倖存者(四種專長:醫護/農夫/槍匠/斥候)跟隨作戰、駐守產出物資、要餵食,同伴上限吃新技能「領袖魅力」
 - [x] **M8f-3a 鏽爪幫**(2026-08-07):掠奪者三型(打手/槍手/頭目)+ 固定營地(帳篷/路障/補給箱,清空拿頭目的軍用鑰匙卡)+ 路上伏擊(第 4 天起)+ 夜襲據點砸建築(第 6 天起)+ 🤞 談判技能與鏽爪聲望可免衝突;掠奪者跟感染者共用同一套鴨子介面,同伴會回擊、皮卡撞得死
-- [ ] M8f-3b 主線與結局:白衣會血清主線(研究員日誌 → 血清配方三部曲 → 潛入研究設施)、三結局
+- [x] **M8f-3b 血清主線與三結局**(2026-08-07):白衣會五步主線(研究員日誌×3 → 醫院/研究所/軍事實驗室三份配方 → 合成血清)+ 四個地標(招牌 + 光柱指路)+ 研究設施終局地城 + 三結局(廣播配方引來屍潮圍攻/修無線電前往淨區/留守重建);**規格書的里程碑到此全部完成**
 
 ## 架構備忘
 
@@ -163,6 +163,14 @@
   - 存讀檔:`raiders` 欄位(營地 cleared/箱子 + 伏擊夜襲排程 + 場上單位;舊檔沒有 = 初始營地)。
   - 開發參數:`?camp=1` 傳送到營地門口、`?ambush=3` 立刻在身邊放 N 個伏擊者。
   - `_test_raiders.html`:鏽爪幫邏輯測試頁(56 條),headless --dump-dom 跑。**注意**:測試頁一次開好幾個 RaiderManager 時,後開的營地會被前一個的 collider 擠到別的位置(`pickCampSpot` 會查 `insideAnyBox`),所以測伏擊要用「離該 manager 自己的營地夠遠」的座標,不能寫死原點。
+- M8f-3b 血清主線/三結局架構(2026-08-07):
+  - 任務定義仍在 `systems/Quests.js`(純邏輯):五個 `main:true` 的主線任務用既有的 collect/visit 機制,新增兩個欄位——`needs`(前置任務,offerFor 會擋)與 `goal.gate`(門禁物品,`onVisit(x,z,inv)` 沒帶就進不去,軍事實驗室要 `keycard`)。offerFor 內主線排序優先於可重複的陣營任務。`MAIN_LINE` = 主線 id 順序。
+  - 世界端在 `systems/Story.js`:LANDMARKS 四個地標(醫院/研究所/軍事實驗室/研究設施)用 seed 77001 從 `structureSpots` 的大樓裡挑,彼此 100m 以上、離出生點 120~260m 以上,**固定 seed 所以不必存檔**;每個地標插一根桿子 + `MeshBasicMaterial` 招牌(不吃光照,夜裡也認得出來,不掛 collider)。`spotFor(questId)` 供 main 在接主線任務時當 visit 座標(一般支線仍走 `npcs.pickQuestSpot`)。
+  - 研究設施 = 終局地城:`guardFacility(enemies)` 用新增的 `EnemyManager.spawnAt(type,x,z)` 在門口放 10 隻(不動 populationTarget,死了不補);走到 5m 內按 E,主線 `main_serum` 交差前是鎖著的。主線一完成就在設施上立一根光柱(`addMarkerAt('facility', …)`,選完結局撤掉)。
+  - 三結局在 `ENDINGS`:①廣播配方(關掉結局畫面後 `broadcastSiege()` 在身邊放 30 隻追擊中的感染者)②前往淨區(要無線電零件×3)③留守重建。選擇走面板 `panelMode 'ending'`(在 TALK_MODES 裡),結局畫面是 index.html 新增的 `#ending-overlay`,可以「留在這個世界」繼續玩或重來。存檔只多一個 `story: {ending}`。
+  - 劇情物品(規格 6.10):`journal` 研究員日誌(辦公桌 w10 / 補給箱 w4)、`radio` 無線電零件(辦公桌 w6 / 補給箱 w3 / 垃圾堆 w5)、`formula_a/b/c`、`keycard`,全部 `quest:true`(不能交易、死亡不掉)。
+  - 開發參數:`?story=5` 直接完成前 N 步主線(5 = 可以選結局)、`?land=facility|hospital|lab|military` 傳送到地標門外、`?panel=ending` 直接開結局選單。
+  - `_test_story.html`:主線/地標/結局邏輯測試頁(42 條),headless --dump-dom 跑。
 - headless 截圖驗證的限制:rAF 迴圈幾乎不前進,只能驗第一幀畫面;跨時間的邏輯(死亡流程等)改用 node 模擬 Stats 驗證。
 - headless 跑主頁面(WebGL)要用 `--use-angle=swiftshader`,不能 `--disable-gpu`(WebGL context 會建不起來);邏輯測試頁不受影響。
 

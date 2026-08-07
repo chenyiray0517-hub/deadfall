@@ -367,6 +367,15 @@ export class EnemyManager {
     return null;
   }
 
+  // 指定位置生一隻(M8f-3:研究設施的守衛;不動 populationTarget,死了不會自動補回來)
+  spawnAt(type, x, z) {
+    if (!TYPES[type]) return null;
+    const zb = new Zombie(type, x, z);
+    this.zombies.push(zb);
+    this.scene.add(zb.mesh);
+    return zb;
+  }
+
   removeZombie(zb) {
     this.scene.remove(zb.mesh);
     zb.mesh.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });

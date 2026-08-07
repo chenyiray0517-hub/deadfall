@@ -61,7 +61,48 @@ export const QUEST_DEFS = [
     repeatable: true,
     done: '「數字對上了。」他在本子上劃掉一行。「你比上一個送樣本的人活得久。」',
   },
+  // ── 白衣會血清主線(M8f-3,規格 7.9:追查病毒起源 → 三份配方 → 潛入研究設施 → 三結局)──
+  // main:true = 對話時優先提供;needs = 前置任務(沒交差就不會給);
+  // visit 型的座標由 Story.spotFor 指定(地標,不是隨機建築)
+  {
+    id: 'main_origin', giver: 'scientist', title: '【主線】NV-7 不是天災', main: true,
+    desc: '「你想知道真相?去把散在城裡的研究員日誌找齊——三本。看完你就知道我們在贖什麼罪。」',
+    goal: { kind: 'collect', items: { journal: 3 } },
+    reward: { caps: 60, xp: 60, rep: { white: 15 } },
+    done: '他一頁一頁翻完,很久沒說話。「病毒是我們做的。血清配方分成三份,散在三個地方——你願意去拿嗎?」',
+  },
+  {
+    id: 'main_formula_a', giver: 'scientist', title: '【主線】醫院的那一份', main: true, needs: 'main_origin',
+    desc: '「第一份在市區的醫院。那裡……躺著很多我以前的同事。」',
+    goal: { kind: 'visit', r: 14, item: 'formula_a' },
+    reward: { caps: 40, xp: 60, rep: { white: 10 } },
+    done: '「字跡是林醫師的。」他把紙折好收進內袋。「還有兩份。」',
+  },
+  {
+    id: 'main_formula_b', giver: 'scientist', title: '【主線】研究所的那一份', main: true, needs: 'main_formula_a',
+    desc: '「第二份在城北的研究所。病毒是從那棟樓漏出去的。」',
+    goal: { kind: 'visit', r: 14, item: 'formula_b' },
+    reward: { caps: 40, xp: 70, rep: { white: 10 } },
+    done: '「合成路徑對上了。」他的手在抖。「只差軍方那一份。」',
+  },
+  {
+    id: 'main_formula_c', giver: 'scientist', title: '【主線】軍事實驗室的那一份', main: true, needs: 'main_formula_b',
+    desc: '「最後一份鎖在軍事實驗室。門是電子鎖——鑰匙卡在鏽爪幫頭目脖子上掛著。」',
+    goal: { kind: 'visit', r: 14, item: 'formula_c', gate: 'keycard' },
+    reward: { caps: 80, xp: 90, rep: { white: 15 } },
+    done: '「三份到齊了。」他抬起頭。「接下來我需要抗生素——很多。」',
+  },
+  {
+    id: 'main_serum', giver: 'scientist', title: '【主線】合成血清', main: true, needs: 'main_formula_c',
+    desc: '「三份配方都在我手上了,剩下的是基底——去弄三劑抗生素來。我在研究設施的化學台上合。地址我會告訴你,之後怎麼做是你的選擇。」',
+    goal: { kind: 'collect', items: { antibiotic: 3 } },
+    reward: { caps: 120, xp: 150, items: { serum: 2 }, rep: { white: 20 } },
+    done: '「成了。」他把兩管血清塞給你,又抄了一張地圖。「剩下的路我走不動了。去研究設施——你自己決定要怎麼收尾。」',
+  },
 ];
+
+// 主線順序(Story 用來判斷進度)
+export const MAIN_LINE = QUEST_DEFS.filter((q) => q.main).map((q) => q.id);
 
 export const questDef = (id) => QUEST_DEFS.find((q) => q.id === id) || null;
 
@@ -76,14 +117,18 @@ export class QuestLog {
 
   get(id) { return this.active.find((q) => q.id === id) || null; }
 
-  // 這個 NPC 現在能給的任務(已接的、做完不可重複的、當天剛交過的都不給)
+  // 這個 NPC 現在能給的任務(已接的、做完不可重複的、當天剛交過的、前置沒完成的都不給)
   offerFor(npc, day) {
     const wanted = npc.questId
       ? [npc.questId]                                                   // 倖存者:綁定他自己那一個
-      : QUEST_DEFS.filter((d) => d.giver === npc.type && !d.unlockRecruit).map((d) => d.id);
+      : QUEST_DEFS.filter((d) => d.giver === npc.type && !d.unlockRecruit)
+          .slice()
+          .sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0))          // 主線優先於可重複的陣營任務
+          .map((d) => d.id);
     for (const id of wanted) {
       const def = questDef(id);
       if (!def || this.get(id)) continue;
+      if (def.needs && this.finished[def.needs] === undefined) continue; // 主線得照順序來
       const fin = this.finished[id];
       if (fin !== undefined && (!def.repeatable || fin >= day)) continue;
       return def;
@@ -123,15 +168,16 @@ export class QuestLog {
   }
 
   // 位置事件(main 每 0.25 秒呼叫):走到標記點就拿到信物,回傳剛達成的任務
-  onVisit(x, z) {
+  // gate:門禁物品(軍事實驗室要鑰匙卡),沒帶就進不去
+  onVisit(x, z, inv = null) {
     const got = [];
     for (const q of this.active) {
       const g = questDef(q.id).goal;
       if (g.kind !== 'visit' || q.prog.got || !q.spot) continue;
-      if (Math.hypot(q.spot.x - x, q.spot.z - z) <= g.r) {
-        q.prog.got = true;
-        got.push(q);
-      }
+      if (Math.hypot(q.spot.x - x, q.spot.z - z) > g.r) continue;
+      if (g.gate && (inv?.count(g.gate) ?? 0) <= 0) continue;
+      q.prog.got = true;
+      got.push(q);
     }
     return got;
   }
@@ -154,7 +200,10 @@ export class QuestLog {
     }
     if (g.kind === 'kill') return `擊殺感染者 ${q.prog.kill}/${g.n}`;
     if (g.kind === 'visit') {
-      if (!q.prog.got) return `前往標記地點(${Math.round(q.spot?.x ?? 0)}, ${Math.round(q.spot?.z ?? 0)})`;
+      if (!q.prog.got) {
+        const gate = g.gate && inv.count(g.gate) <= 0 ? `(需要${ITEMS[g.gate].icon}${ITEMS[g.gate].name})` : '';
+        return `前往標記地點(${Math.round(q.spot?.x ?? 0)}, ${Math.round(q.spot?.z ?? 0)})${gate}`;
+      }
       return `已取得${ITEMS[g.item].icon}${ITEMS[g.item].name},回去交給他`;
     }
     return '';

@@ -1,5 +1,5 @@
 import * as THREE from './lib/three.js';
-import { createTerrain, regionName, terrainHeight } from './world/Terrain.js';
+import { createTerrain, regionName, terrainHeight, isDeepWater } from './world/Terrain.js';
 import { createStructures } from './world/Structures.js';
 import { spawnLoot } from './world/LootSpawner.js';
 import { TimeSystem } from './core/TimeSystem.js';
@@ -16,9 +16,10 @@ import { Buildings, BUILDABLES, sleepUntilMorning, dropHalfInventory } from './s
 import { peekSave, clearSave, saveGame, loadGame } from './systems/SaveSystem.js';
 import { VehicleManager } from './systems/Vehicles.js';
 import { NpcManager, FACTIONS, PRICES, giftValue } from './entities/Npc.js';
-import { QuestLog, questDef } from './systems/Quests.js';
+import { QuestLog, questDef, MAIN_LINE } from './systems/Quests.js';
 import { CompanionManager, ROLES, FEED_VALUE } from './entities/Companion.js';
 import { RaiderManager } from './entities/Raiders.js';
+import { Story, LANDMARKS } from './systems/Story.js';
 import { loadItemModels } from './lib/glb.js';
 
 // ── 基礎場景 ──
@@ -78,6 +79,9 @@ raiders.onCampCleared = () => {
     if (got) toast(`${FACTIONS[f].icon} ${FACTIONS[f].name}聲望 ${got > 0 ? '+' : ''}${got}(${npcs.repOf(f)})`);
   }
 };
+// 血清主線的地標與結局(M8f-3,規格 7.9;同樣要在 createStructures 之後)
+const story = new Story(scene);
+story.guardFacility(enemies); // 研究設施 = 終局地城,門口多站一圈感染者
 enemies.interceptAttack = (dmg) => vehicles.interceptAttack(dmg); // 開車時感染者打車體
 scene.add(camera); // 第一人稱武器模型掛在相機上
 const combat = new Combat({
@@ -412,7 +416,9 @@ function renderGiftPanel() {
 // ── 任務(M8f-2,規格 7.9)──
 // 標記點光柱:visit 型任務接下後在目標處立一道光,拿到信物就撤掉
 const questMarkers = new Map();
-function addQuestMarker(q) {
+function addQuestMarker(q) { addMarkerAt(q.id, q.spot); }
+function addMarkerAt(key, spot) {
+  const q = { id: key, spot };
   if (!q.spot || questMarkers.has(q.id)) return;
   const m = new THREE.Mesh(
     new THREE.CylinderGeometry(1.2, 1.2, 70, 8, 1, true),
@@ -533,6 +539,75 @@ function renderFeedPanel() {
     <div class="mats">${c.statusText()}</div>${rows}${actionRow('算了')}`;
 }
 
+// ── 三結局(M8f-3,規格 7.9)──
+function renderEndingPanel() {
+  talkActions = [];
+  const rows = story.options(inventory).map(({ def, miss }) => {
+    talkActions.push({ act: 'ending', id: def.id });
+    const need = miss
+      ? `<span class="req" style="color:#c84a3c">(缺 ${ITEMS[miss.id].icon}${ITEMS[miss.id].name}×${miss.n})</span>`
+      : '';
+    return actionRow(`${def.icon} ${def.title} ${need}<div class="req" style="padding-left:20px">${def.hint}</div>`);
+  }).join('');
+  talkActions.push({ act: 'close' });
+  panelEl.innerHTML = `<h2>☣️ 研究設施</h2>
+    <div class="mats">${talkLine || '化學台上躺著剛合成好的血清。接下來怎麼做,沒有人能替你決定。'}</div>
+    ${rows}${actionRow('再想想')}
+    <div class="hint">按數字選擇 · E/Tab 離開</div>`;
+}
+
+let pendingSiege = false; // 結局①:關掉結局畫面後才把屍潮放出來
+function showEnding(def) {
+  document.exitPointerLock();
+  buildings.cancelPlacing();
+  setPanel(null);
+  const el = $('ending-overlay');
+  el.querySelector('.icon').textContent = def.icon;
+  el.querySelector('h1').textContent = def.title;
+  el.querySelector('.text').textContent = def.text;
+  el.querySelector('.days').textContent = `第 ${timeSystem.day} 天 · Lv${skills.level} · ${regionName(player.position.x, player.position.z)}`;
+  el.classList.remove('hidden');
+  crosshairEl.classList.add('hidden');
+  promptEl.classList.add('hidden');
+  sfx.play('levelup');
+  gainXp(300);
+  pendingSiege = def.id === 'broadcast';
+  if (canSave) saveGame(saveCtx);
+}
+$('ending-continue').addEventListener('click', () => {
+  $('ending-overlay').classList.add('hidden');
+  overlayEl.classList.remove('hidden'); // 點一下畫面重新鎖定滑鼠
+  if (pendingSiege) {
+    pendingSiege = false;
+    broadcastSiege();
+  }
+});
+$('ending-restart').addEventListener('click', () => {
+  clearSave();
+  location.reload();
+});
+
+// 結局①的代價:訊號把四面八方的東西都引過來了(規格 7.9「犧牲據點被屍潮圍攻」)
+function broadcastSiege() {
+  const p = player.position;
+  let n = 0;
+  for (let i = 0; i < 30; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 38 + Math.random() * 28;
+    const x = p.x + Math.cos(a) * r;
+    const z = p.z + Math.sin(a) * r;
+    if (isDeepWater(x, z)) continue;
+    const zb = enemies.spawnAt(Math.random() < 0.45 ? 'runner' : 'walker', x, z);
+    if (!zb) continue;
+    zb.state = 'chase';
+    zb.lastKnown = { x: p.x, z: p.z };
+    zb.lastSeenTime = elapsed;
+    n++;
+  }
+  toast(`📡 訊號傳出去了——四面八方都是腳步聲(${n})`);
+  sfx.play('horde');
+}
+
 function doTalkAction(i) {
   const a = talkActions[i - 1];
   if (!a) return;
@@ -540,12 +615,25 @@ function doTalkAction(i) {
   if (a.act === 'close') { setPanel(null); return; }
   if (a.act === 'back') { setPanel('talk'); return; }
   if (a.act === 'backComp') { setPanel('companion'); return; }
+  if (a.act === 'ending') {
+    const def = story.choose(a.id, inventory);
+    if (!def) {
+      talkLine = '「……你還沒準備好走這條路。」(條件不足)';
+      sfx.play('uiOff');
+      renderEndingPanel();
+      return;
+    }
+    showEnding(def);
+    return;
+  }
   // ── 任務 ──
   if (a.act === 'questOffer') { questOffer = a.def; setPanel('quest'); return; }
   if (a.act === 'questAccept') {
     const def = questOffer;
     const idx = npcs.npcs.indexOf(npc);
-    const spot = def.goal.kind === 'visit' ? npcs.pickQuestSpot(npc) : null;
+    const spot = def.goal.kind !== 'visit' ? null
+      : def.main ? story.spotFor(def.id)     // 主線:固定地標(醫院/研究所/軍事實驗室)
+      : npcs.pickQuestSpot(npc);
     const q = quests.accept(def, idx, spot);
     if (q) {
       if (spot) { addQuestMarker(q); toast(`📜 接下「${def.title}」——${bearingText(spot.x, spot.z)}有一道光柱`); }
@@ -680,10 +768,11 @@ function setPanel(mode) {
   else if (mode === 'quests') renderQuestsPanel();
   else if (mode === 'companion') renderCompanionPanel();
   else if (mode === 'feed') renderFeedPanel();
+  else if (mode === 'ending') renderEndingPanel();
 }
 
 // 走數字鍵 → doTalkAction 的面板(對話、交易、任務、同伴指令)
-const TALK_MODES = ['talk', 'trade', 'gift', 'quest', 'companion', 'feed'];
+const TALK_MODES = ['talk', 'trade', 'gift', 'quest', 'companion', 'feed', 'ending'];
 
 function doChestTransfer(digit) {
   const act = chestActions[digit - 1];
@@ -754,8 +843,20 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') {
     // 對話中按 E = 離開對話(不然會原地重開一次)
     if (TALK_MODES.includes(panelMode)) { setPanel(null); return; }
-    const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
+    const sel = story.findInteraction(player.position, quests)
+      || findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
     if (!sel) return;
+    if (sel.kind === 'facility') { // 研究設施 = 終局(M8f-3,規格 7.9)
+      if (sel.locked || sel.done) {
+        toast(sel.done ? '你已經做出選擇了' : '☣️ 門是鎖著的——先把白衣會的血清主線走完');
+        sfx.play('uiOff');
+        return;
+      }
+      talkLine = '';
+      sfx.play('talk');
+      setPanel('ending');
+      return;
+    }
     if (sel.kind === 'companion') { // 同伴下指令(M8f-2)
       compRef = sel.comp;
       sfx.play('talk');
@@ -973,6 +1074,18 @@ if (params.has('camp')) { // ?camp=1 直接傳送到鏽爪幫營地門口(試營
   player.position.set(c.x + 16, terrainHeight(c.x + 16, c.z), c.z);
   player.yaw = Math.PI / 2; // 面朝營地(-x 方向)
 }
+if (params.has('land')) { // ?land=facility|hospital|lab|military 傳送到主線地標
+  const lm = LANDMARKS.find((l) => l.id === params.get('land'));
+  const p = lm && story.spots[lm.id];
+  if (p) {
+    player.position.set(p.x + 14, terrainHeight(p.x + 14, p.z), p.z); // 站在門外看得到招牌的距離
+    player.yaw = Math.PI / 2;
+  }
+}
+if (params.has('story')) { // ?story=5 直接完成前 N 個主線任務(5 = 全通,可以選結局)
+  const n = parseInt(params.get('story')) || 0;
+  for (const id of MAIN_LINE.slice(0, n)) quests.finished[id] = 1;
+}
 if (params.has('ambush')) { // ?ambush=3 立刻在身邊放 N 個伏擊者
   const n = parseInt(params.get('ambush')) || 3;
   for (let i = 0; i < n; i++) {
@@ -995,7 +1108,8 @@ if (params.has('quest')) {
     if (!def) continue;
     const npc = npcs.npcs.find((n) => (n.questId ? n.questId === id : n.type === def.giver));
     if (!npc) continue;
-    const q = quests.accept(def, npcs.npcs.indexOf(npc), def.goal.kind === 'visit' ? npcs.pickQuestSpot(npc) : null);
+    const spot = def.goal.kind !== 'visit' ? null : def.main ? story.spotFor(def.id) : npcs.pickQuestSpot(npc);
+    const q = quests.accept(def, npcs.npcs.indexOf(npc), spot);
     if (q?.spot) addQuestMarker(q);
   }
 }
@@ -1026,7 +1140,7 @@ if (params.has('panel')) {
 // 自動存檔(20 秒/睡覺/關頁面);有存檔時開始畫面可選「繼續上次」
 // ?nosave=1 = 不讀不存(測試/截圖用,免得污染正常存檔)
 const canSave = !params.has('nosave');
-const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions, raiders };
+const saveCtx = { timeSystem, stats, inventory, player, combat, buildings, enemies, scene, skills, vehicles, npcs, quests, companions, raiders, story };
 const savedData = canSave ? peekSave() : null;
 let awaitingChoice = !!savedData;
 
@@ -1246,7 +1360,8 @@ function loop() {
       promptEl.classList.remove('hidden');
       promptEl.innerHTML = `<b>左鍵</b> 放置${buildings.placing.name}(${costText(buildings.placing)}) · <b>B</b> 取消`;
     } else {
-      const sel = findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
+      const sel = story.findInteraction(player.position, quests)
+        || findInteraction(player, inventory, enemies, buildings, vehicles, npcs, companions, raiders);
       promptEl.classList.toggle('hidden', !sel);
       if (sel) promptEl.innerHTML = `<b>E</b> ${sel.label}`;
     }
@@ -1267,7 +1382,7 @@ function loop() {
     updateEffects();
     if (stats.alive && started) {
       // 任務標記點:走到了就拿到信物(規格 7.9 取回遺物)
-      for (const q of quests.onVisit(player.position.x, player.position.z)) {
+      for (const q of quests.onVisit(player.position.x, player.position.z, inventory)) {
         const g = questDef(q.id).goal;
         inventory.add(g.item, 1);
         removeQuestMarker(q.id);
@@ -1275,6 +1390,9 @@ function loop() {
         sfx.play('pickup');
       }
       updatePartyHud();
+      // 主線走到最後:研究設施亮起光柱指路(選完結局就撤掉)
+      if (story.unlocked(quests) && !story.ending) addMarkerAt('facility', story.facility);
+      else if (story.ending) removeQuestMarker('facility');
       // 鏽爪幫:路上伏擊 + 夜襲據點(規格 7.8)
       if (raiders.maybeAmbush(timeSystem, player.position, elapsed)) {
         toast('☠️ 「東西留下,人可以走!」——鏽爪幫圍上來了');

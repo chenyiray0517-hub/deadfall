@@ -131,8 +131,13 @@ export const ITEMS = {
   musicbox: { name: '音樂盒', icon: '🎵', quest: true },
   photo: { name: '全家福照片', icon: '🖼', quest: true },
   dogtag: { name: '身分名牌', icon: '🏷', quest: true },
-  // ── 劇情物品(M8f-3,規格 6.10)──
+  // ── 劇情物品(M8f-3,規格 6.10;quest:true = 不能交易、死亡不掉)──
   keycard: { name: '軍用鑰匙卡', icon: '💳', quest: true }, // 鏽爪頭目身上;軍事實驗室門禁
+  journal: { name: '研究員日誌', icon: '📓', quest: true }, // 散落各地,拼湊病毒真相
+  radio: { name: '無線電零件', icon: '📻', quest: true },   // 湊三份可以呼叫「淨區」(結局②)
+  formula_a: { name: '血清配方·醫院', icon: '📄', quest: true },
+  formula_b: { name: '血清配方·研究所', icon: '📄', quest: true },
+  formula_c: { name: '血清配方·軍事實驗室', icon: '📄', quest: true },
 };
 
 // 快捷欄:依此優先序顯示「持有的」消耗品,最多 8 格

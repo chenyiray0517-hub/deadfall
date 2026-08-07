@@ -182,6 +182,29 @@
     margin-top: 14px; font-size: 13px; padding: 8px 24px;
     border-color: #55524c; color: #9a977f;
   }
+  /* ── 結局畫面(M8f-3)── */
+  #ending-overlay {
+    position: fixed; inset: 0; pointer-events: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(6, 10, 10, .93);
+    font-family: 'Noto Sans TC', sans-serif; color: #d8d4c2;
+  }
+  #ending-overlay .icon { font-size: 46px; margin-bottom: 10px; }
+  #ending-overlay h1 {
+    font-size: 38px; letter-spacing: .22em; color: #4ac8c8; margin-bottom: 20px;
+  }
+  #ending-overlay .text {
+    max-width: 620px; font-size: 15.5px; line-height: 2.1; color: #b6b3a2;
+    white-space: pre-line; text-align: center; margin-bottom: 22px;
+  }
+  #ending-overlay .days { font-size: 14px; color: #e5a13c; margin-bottom: 32px; letter-spacing: .1em; }
+  #ending-overlay button {
+    pointer-events: auto; cursor: pointer; margin-top: 10px;
+    font-family: inherit; font-size: 15px; letter-spacing: .18em;
+    color: #d8d4c2; background: none; border: 1px solid #8a9a6b; padding: 11px 34px;
+  }
+  #ending-overlay button:hover { background: rgba(138,154,107,.2); }
+  #ending-overlay #ending-restart { font-size: 13px; padding: 8px 22px; border-color: #55524c; color: #9a977f; }
   #start-overlay {
     position: fixed; inset: 0; pointer-events: auto;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -251,6 +274,15 @@
   <button id="restart-btn" class="hidden">重新開始(放棄這一輪)</button>
 </div>
 
+<div id="ending-overlay" class="hidden">
+  <div class="icon"></div>
+  <h1></h1>
+  <div class="text"></div>
+  <div class="days"></div>
+  <button id="ending-continue">留在這個世界(繼續遊玩)</button>
+  <button id="ending-restart">從頭再來一次</button>
+</div>
+
 <div id="start-overlay">
   <h1>殘存之境</h1>
   <div class="en">DEADFALL — M8 BUILD</div>
@@ -259,7 +291,9 @@
     <b>E</b> 互動　<b>Tab</b> 背包/製作　<b>B</b> 建造　<b>K</b> 技能樹　<b>J</b> 任務　<b>M</b> 靜音　<b>1-8</b> 快捷欄（武器=裝備、物品=使用）<br>
     路邊的廢車能拆出汽油與零件——修好腳踏車或皮卡就能開（<b>E</b> 上下車　<b>R</b> 加油）<br>
     荒野上還有活人：跟他們交易、接下委託，做完了就能邀倖存者同行——同伴會替你打，也要你餵。<br>
-    <span style="color:#c84a3c">夜裡會有屍潮襲擊——用斧頭砍樹、築牆設刺、放張床,天黑前守好你的據點。</span>
+    <span style="color:#c84a3c">夜裡會有屍潮襲擊——用斧頭砍樹、築牆設刺、放張床,天黑前守好你的據點。</span><br>
+    <span style="color:#8a3a2a">鏽爪幫會在路上伏擊你、夜裡來砸你的牆;他們的營地裡有值得拚一場的東西。</span><br>
+    <span style="color:#4ac8c8">找白衣會的研究員聊聊——NV-7 不是天災,而血清的配方分成了三份。</span>
   </div>
   <div id="save-btns" class="hidden">
     <button id="continue-btn">▶ 繼續上次</button>

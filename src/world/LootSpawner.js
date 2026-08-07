@@ -43,10 +43,13 @@ const CRATE_TABLE = [
   { id: 'tire', w: 3 }, { id: 'battery', w: 2 }, { id: 'engine', w: 1 }, { id: 'fuel', w: 3 },
   // M8f:瓶蓋(方舟聚落的貨幣)
   { id: 'caps', w: 14 },
+  // M8f-3:劇情物品(研究員日誌散落各地、無線電零件湊三份可呼叫淨區)
+  { id: 'journal', w: 4 }, { id: 'radio', w: 3 },
 ];
 const TRASH_TABLE = [
   { id: 'cloth', w: 40 }, { id: 'scrap', w: 40 }, { id: 'canned', w: 20 },
   { id: 'bat', w: 12 }, { id: 'ammo9', w: 8 }, { id: 'caps', w: 12 },
+  { id: 'radio', w: 5 }, // 拆電器撿到的無線電零件(M8f-3)
 ];
 // 室內家具掉落表(M8):商店吃喝多、辦公桌雜物彈藥多、衣櫃布料多
 const FURN_TABLES = {
@@ -75,6 +78,8 @@ const FURN_TABLES = {
     { id: 'scrap', w: 22 }, { id: 'ammo9', w: 12 }, { id: 'cloth', w: 10 },
     { id: 'empty', w: 10 }, { id: 'bandage', w: 6 }, { id: 'antibiotic', w: 6 },
     { id: 'pistol', w: 2 }, { id: 'serum', w: 1 }, { id: 'caps', w: 16 },
+    // M8f-3:辦公桌抽屜是日誌與無線電零件的主要來源
+    { id: 'journal', w: 10 }, { id: 'radio', w: 6 },
   ],
 };
 

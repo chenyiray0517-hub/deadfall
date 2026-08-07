@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head><body><pre id="out">running...</pre>
+<script type="module">
+const out = [];
+const test = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+try {
+  const T = await import('./src/world/Terrain.js');
+  const S = await import('./src/world/Structures.js');
+  const L = await import('./src/world/LootSpawner.js');
+  const { Inventory, ITEMS } = await import('./src/player/Items.js');
+  const Q = await import('./src/systems/Quests.js');
+  const St = await import('./src/systems/Story.js');
+
+  S.createStructures();
+  T.createTerrain();
+  const fakeScene = { add() {}, remove() {} };
+  const story = new St.Story(fakeScene);
+  const scientist = { type: 'scientist', questId: null };
+
+  // ── 劇情物品 ──
+  test('主線物品都在',
+    ['journal', 'radio', 'formula_a', 'formula_b', 'formula_c', 'keycard']
+      .every((id) => ITEMS[id]?.quest === true));
+
+  // 日誌與無線電零件真的撿得到(辦公桌/補給箱/垃圾堆抽 400 次)
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) {
+    for (const t of ['desk', 'crate', 'trash']) {
+      for (const id of Object.keys(L.rollLoot(t))) seen.add(id);
+    }
+  }
+  test('日誌撿得到', seen.has('journal'));
+  test('無線電零件撿得到', seen.has('radio'));
+
+  // ── 主線鏈 ──
+  test('主線五步', Q.MAIN_LINE.length === 5 && Q.MAIN_LINE[0] === 'main_origin',
+    Q.MAIN_LINE.join('→'));
+  test('主線前置一路串好',
+    Q.MAIN_LINE.slice(1).every((id, i) => Q.questDef(id).needs === Q.MAIN_LINE[i]));
+
+  const log = new Q.QuestLog();
+  test('研究員先給主線(不是可重複的採樣任務)',
+    log.offerFor(scientist, 1)?.id === 'main_origin', log.offerFor(scientist, 1)?.id);
+  log.accept(Q.questDef('main_origin'), 0);
+  test('接了就不重複給', log.offerFor(scientist, 1)?.id === 'white_sample');
+
+  const inv = new Inventory();
+  const q0 = log.get('main_origin');
+  inv.add('journal', 2);
+  test('日誌不夠不算完成', !log.isComplete(q0, inv));
+  inv.add('journal', 1);
+  test('三本日誌 = 完成', log.isComplete(q0, inv));
+  const res0 = log.turnIn(q0, inv, 1);
+  test('交差扣掉日誌、拿到獎勵', !!res0 && inv.count('journal') === 0 && inv.count('caps') === 60);
+  test('前置沒完成不會給下下個',
+    log.offerFor(scientist, 1)?.id === 'main_formula_a');
+
+  // ── 地標與 visit 座標 ──
+  const ids = St.LANDMARKS.map((l) => l.id);
+  test('四個地標', ids.length === 4 && ids.includes('facility'), ids.join());
+  test('地標都有座標', ids.every((id) => Number.isFinite(story.spots[id].x)));
+  test('地標彼此夠遠', ids.every((a, i) => ids.every((b, j) => i === j
+    || Math.hypot(story.spots[a].x - story.spots[b].x, story.spots[a].z - story.spots[b].z) > 100)));
+  test('研究設施離出生點夠遠',
+    Math.hypot(story.facility.x - T.SPAWN.x, story.facility.z - T.SPAWN.z) > 200,
+    `${Math.round(Math.hypot(story.facility.x - T.SPAWN.x, story.facility.z - T.SPAWN.z))}m`);
+  test('spotFor 對應到地標',
+    story.spotFor('main_formula_a').x === story.spots.hospital.x
+    && story.spotFor('main_formula_c').x === story.spots.military.x);
+  test('非主線任務沒有地標', story.spotFor('sv_relic') === null);
+
+  const story2 = new St.Story(fakeScene);
+  test('地標位置每次載入都一樣(固定 seed,不必存檔)',
+    ids.every((id) => story2.spots[id].x === story.spots[id].x));
+
+  // ── 軍事實驗室的鑰匙卡門禁 ──
+  const defA = Q.questDef('main_formula_a');
+  const qa = log.accept(defA, 0, story.spotFor('main_formula_a'));
+  const sa = qa.spot;
+  test('走到醫院拿到配方', log.onVisit(sa.x, sa.z, inv).length === 1 && qa.prog.got);
+  inv.add('formula_a', 1);
+  log.turnIn(qa, inv, 1);
+  const qb = log.accept(Q.questDef('main_formula_b'), 0, story.spotFor('main_formula_b'));
+  log.onVisit(qb.spot.x, qb.spot.z, inv);
+  inv.add('formula_b', 1);
+  log.turnIn(qb, inv, 1);
+
+  const qc = log.accept(Q.questDef('main_formula_c'), 0, story.spotFor('main_formula_c'));
+  test('沒鑰匙卡進不去', log.onVisit(qc.spot.x, qc.spot.z, inv).length === 0 && !qc.prog.got);
+  test('面板會提示要鑰匙卡', log.progressText(qc, inv).includes('鑰匙卡'), log.progressText(qc, inv));
+  inv.add('keycard', 1);
+  test('有鑰匙卡就進得去', log.onVisit(qc.spot.x, qc.spot.z, inv).length === 1 && qc.prog.got);
+  inv.add('formula_c', 1);
+  log.turnIn(qc, inv, 1);
+
+  // ── 合成血清 ──
+  test('三份配方都交給研究員了(手上不留)',
+    inv.count('formula_a') === 0 && inv.count('formula_b') === 0 && inv.count('formula_c') === 0);
+  const qs = log.accept(Q.questDef('main_serum'), 0);
+  inv.add('antibiotic', 2);
+  test('抗生素不夠不能交', !log.isComplete(qs, inv));
+  inv.add('antibiotic', 1);
+  test('三劑抗生素 = 完成', log.isComplete(qs, inv));
+  const capsBefore = inv.count('caps');
+  const resS = log.turnIn(qs, inv, 2);
+  test('交差拿到兩管血清',
+    inv.count('serum') === 2 && inv.count('antibiotic') === 0 && inv.count('caps') > capsBefore, resS?.def.id);
+  test('主線走完 = 研究設施解鎖', story.unlocked(log) === true);
+
+  // ── 研究設施互動 ──
+  const far = story.findInteraction({ x: story.facility.x + 40, z: story.facility.z }, log);
+  test('離遠了沒有互動', far === null);
+  const lockedStory = new St.Story(fakeScene);
+  const lockedSel = lockedStory.findInteraction(lockedStory.facility, new Q.QuestLog());
+  test('主線沒走完 = 門鎖著', lockedSel?.kind === 'facility' && lockedSel.locked === true, lockedSel?.label);
+  const openSel = story.findInteraction(story.facility, log);
+  test('主線走完 = 可以走進去', openSel?.kind === 'facility' && !openSel.locked, openSel?.label);
+
+  // ── 三結局 ──
+  test('三個結局', St.ENDINGS.length === 3);
+  let opts = story.options(inv);
+  test('廣播與留守隨時可選',
+    opts.find((o) => o.def.id === 'broadcast').ok && opts.find((o) => o.def.id === 'settle').ok);
+  test('淨區要無線電零件 ×3', !opts.find((o) => o.def.id === 'haven').ok);
+  test('條件不足就選不了', story.choose('haven', inv) === null && story.ending === null);
+  inv.add('radio', 3);
+  test('湊齊零件就能選', story.options(inv).find((o) => o.def.id === 'haven').ok);
+  const chosen = story.choose('haven', inv);
+  test('選了結局', chosen?.id === 'haven' && story.ending === 'haven' && chosen.text.length > 20);
+  test('結局只能選一次', story.choose('settle', inv) === null && story.ending === 'haven');
+  test('選完之後互動變成已完成',
+    story.findInteraction(story.facility, log)?.done === true);
+
+  // ── 終局地城守衛 ──
+  const spawned = [];
+  const fakeEnemies = { spawnAt: (t, x, z) => { spawned.push({ t, x, z }); return {}; } };
+  const n = new St.Story(fakeScene).guardFacility(fakeEnemies);
+  test('研究設施門口有守衛', n >= 8 && spawned.length === n, `n=${n}`);
+  test('守衛就站在設施旁邊',
+    spawned.every((s) => Math.hypot(s.x - story.facility.x, s.z - story.facility.z) < 30));
+
+  // ── 存讀檔 ──
+  const story3 = new St.Story(fakeScene);
+  story3.loadFrom(story.serialize());
+  test('存讀:結局還原', story3.ending === 'haven');
+  const story4 = new St.Story(fakeScene);
+  story4.loadFrom(null);
+  test('舊檔沒有 story 欄位也能跑', story4.ending === null);
+
+  out.push(`== ${out.filter((l) => l.startsWith('PASS')).length} PASS / ${out.filter((l) => l.startsWith('FAIL')).length} FAIL ==`);
+} catch (err) {
+  out.push('ERROR ' + err.message + '\n' + err.stack);
+}
+document.getElementById('out').textContent = out.join('\n');
+</script>
+</body></html>
